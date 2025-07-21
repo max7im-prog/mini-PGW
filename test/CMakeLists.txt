@@ -6,6 +6,4 @@ add_executable(unitTests
 
 target_link_libraries(unitTests PRIVATE GTest::gtest_main GTest::gmock)
 
-# include(GoogleTest)
-
 gtest_discover_tests(unitTests)
