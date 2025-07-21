@@ -1,0 +1,3 @@
+class CDREvent{
+    //TODO: implement
+};

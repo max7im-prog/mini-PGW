@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.15.0)
 project(protey-course-work VERSION 0.1.0 LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 set(FETCHCONTENT_QUIET OFF)
+
 FetchContent_Declare(
     gtest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -17,12 +20,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cpp-http)
 
+FetchContent_Declare(
+  nlohmann-json 
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+FetchContent_MakeAvailable(nlohmann-json)
 
 FetchContent_Declare(
-  nlohmann-json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+  spdlog 
+  URL https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz
 )
-
-FetchContent_MakeAvailable(nlohmann-json)
+FetchContent_MakeAvailable(spdlog)
 
 include(CTest)
 include(GoogleTest)

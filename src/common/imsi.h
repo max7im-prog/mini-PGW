@@ -1,0 +1,18 @@
+#pragma once
+#include <string>
+#include <optional>
+
+class IMSI{
+public:
+    static std::optional<IMSI> fromStdString(const std::string &imsiStr);
+    static std::optional<IMSI> fromBCDBytes(const std::string &bcdStr);
+    const std::string& toStdString() const;
+    std::string toBCDBytes() const;
+private:
+    IMSI();
+    IMSI(const IMSI &other) = default;
+    IMSI(IMSI &&other) = default;
+    IMSI& operator=(const IMSI& other) = default;
+    IMSI& operator=(IMSI&& other) = default;
+    std::string imsi;
+};
