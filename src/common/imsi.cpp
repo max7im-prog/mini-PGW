@@ -81,3 +81,5 @@ std::optional<IMSI> IMSI::fromStdString(const std::string &imsiStr) {
 }
 
 IMSI::IMSI(const std::string &imsiStr) : imsi(imsiStr) {}
+
+bool IMSI::operator<(const IMSI &other) const { return imsi < other.imsi; }
