@@ -8,11 +8,12 @@ public:
     static std::optional<IMSI> fromBCDBytes(const std::string &bcdStr);
     const std::string& toStdString() const;
     std::string toBCDBytes() const;
-private:
-    IMSI();
     IMSI(const IMSI &other) = default;
     IMSI(IMSI &&other) = default;
     IMSI& operator=(const IMSI& other) = default;
     IMSI& operator=(IMSI&& other) = default;
+private:
+    IMSI()=default;
+    IMSI(const std::string& imsiStr);
     std::string imsi;
 };
