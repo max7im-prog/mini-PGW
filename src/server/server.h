@@ -45,7 +45,7 @@ private:
   std::thread cleanupThread;
   std::unique_ptr<ThreadPool> udpThreadPool;
 
-  struct {
+  struct UdpSocketContext{
     int udpSocketFD;
     sockaddr_in udpAddr;
     int epollFD;

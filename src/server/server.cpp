@@ -1,9 +1,12 @@
 #include "server.h"
 #include "nlohmann/json_fwd.hpp"
+#include <arpa/inet.h>
+#include <fcntl.h>
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <sys/epoll.h>
 
 std::optional<Server::ServerConfig>
 Server::parseConfigFile(const std::string &configFile) {
@@ -97,14 +100,55 @@ std::unique_ptr<Server> Server::fromConfig(const ServerConfig &config) {
 }
 
 bool Server::init(const ServerConfig &config) {
-  if(config.numUdpThreads == 0){
+  if (config.numUdpThreads == 0) {
     return false;
   }
+
+  this->config = config;
+
   udpThreadPool = ThreadPool::create(config.numUdpThreads);
-  if(udpThreadPool == nullptr){
+  if (!udpThreadPool) {
     return false;
   }
-  
+
+  udpSocket.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
+  if (udpSocket.udpSocketFD < 0) {
+    return false;
+  }
+
+  udpSocket.udpAddr = {};
+  udpSocket.udpAddr.sin_family = AF_INET;
+  udpSocket.udpAddr.sin_port = htons(config.udpPort);
+  if (inet_pton(AF_INET, config.ip.c_str(), &udpSocket.udpAddr.sin_addr) != 1) {
+    return false;
+  }
+
+  if (bind(udpSocket.udpSocketFD, (sockaddr *)&udpSocket.udpAddr,
+           sizeof(udpSocket.udpAddr)) < 0) {
+    return false;
+  }
+
+  // Set non-blocking
+  int flags = fcntl(udpSocket.udpSocketFD, F_GETFL, 0);
+  if (flags < 0 ||
+      fcntl(udpSocket.udpSocketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
+    return false;
+  }
+
+  udpSocket.epollFD = epoll_create1(0);
+  if (udpSocket.epollFD < 0) {
+    return false;
+  }
+
+  epoll_event ev{};
+  ev.events = EPOLLIN;
+  ev.data.fd = udpSocket.udpSocketFD;
+  if (epoll_ctl(udpSocket.epollFD, EPOLL_CTL_ADD, udpSocket.udpSocketFD, &ev) <
+      0) {
+    return false;
+  }
+
+  udpSocket.recvBuffer.resize(2048); // Adjust size as needed
 
   return true;
 }
