@@ -1,4 +1,5 @@
 #include "threadPool.h"
+#include <memory>
 #include <mutex>
 
 ThreadPool::ThreadPool(size_t threadCount) : running(true) {
@@ -40,4 +41,11 @@ void ThreadPool::enqueue(Task task) {
     tasks.push(std::move(task));
   }
   condition.notify_one();
+}
+
+std::unique_ptr<ThreadPool> ThreadPool::create(size_t threadCount){
+  if(threadCount == 0){
+    return nullptr;
+  }
+  return std::unique_ptr<ThreadPool>(new ThreadPool(threadCount));
 }

@@ -1,6 +1,7 @@
 #include "server.h"
 #include "nlohmann/json_fwd.hpp"
 #include <fstream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
 
@@ -19,6 +20,11 @@ Server::parseConfigFile(const std::string &configFile) {
   }
 
   ServerConfig serverConfig;
+
+  if (!data.contains("numUdpThreads") ||
+      !data["numUdpThreads"].is_number_unsigned())
+    return std::nullopt;
+  serverConfig.numUdpThreads = data["numUdpThreads"].get<size_t>();
 
   if (!data.contains("ip") || !data["ip"].is_string())
     return std::nullopt;
@@ -74,10 +80,31 @@ Server::parseConfigFile(const std::string &configFile) {
   return serverConfig;
 }
 
-std::optional<Server> Server::fromConfigFile(const std::string &configFile){
+std::unique_ptr<Server> Server::fromConfigFile(const std::string &configFile) {
   auto config = Server::parseConfigFile(configFile);
-  if(!config.has_value()){
-    return std::nullopt;
+  if (!config.has_value()) {
+    return nullptr;
   }
   return Server::fromConfig(config.value());
+}
+
+std::unique_ptr<Server> Server::fromConfig(const ServerConfig &config) {
+  std::unique_ptr<Server> server = std::unique_ptr<Server>(new Server);
+  if (!server->init(config)) {
+    return nullptr;
+  }
+  return server;
+}
+
+bool Server::init(const ServerConfig &config) {
+  if(config.numUdpThreads == 0){
+    return false;
+  }
+  udpThreadPool = ThreadPool::create(config.numUdpThreads);
+  if(udpThreadPool == nullptr){
+    return false;
+  }
+  
+
+  return true;
 }

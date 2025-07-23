@@ -8,16 +8,18 @@ class ThreadPool {
 public:
   using Task = std::function<void()>;
 
-  ThreadPool(size_t threadCount);
+  static std::unique_ptr<ThreadPool> create(size_t threadCount);
+  
   ~ThreadPool();
   void enqueue(Task task);
 
   ThreadPool(ThreadPool &other) = delete;
-  ThreadPool(ThreadPool &&other) = delete;
   ThreadPool &operator=(ThreadPool &other) = delete;
+  ThreadPool(ThreadPool &&other) = delete;
   ThreadPool &operator=(ThreadPool &&other) = delete;
 
 private:
+  explicit ThreadPool(size_t threadCount);
   std::queue<Task> tasks;
   std::vector<std::thread> threads;
   std::mutex queueMutex;
