@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <optional>
 #include <set>
 #include <string>
@@ -33,7 +34,8 @@ public:
   Server(Server &&other) = delete;
   Server &operator=(Server &&other) = delete;
 
-  std::atomic<bool> running; // Main flag controlling the execution of epoll thread
+  std::atomic<bool>
+      running; // Main flag controlling the execution of epoll thread
 
 private:
   static std::optional<ServerConfig>
@@ -49,7 +51,7 @@ private:
   std::thread cleanupThread;
   std::unique_ptr<ThreadPool> udpThreadPool;
 
-  struct UdpSocketContext{
+  struct UdpSocketContext {
     int udpSocketFD;
     sockaddr_in udpAddr;
     int epollFD;
@@ -63,5 +65,6 @@ private:
   void runHttpThread();
   void runCleanupThread();
 
-  void processUdpPacket(std::vector<char> packet);
+  void processUdpPacket(std::vector<char> packet,
+                        const sockaddr_in &clientAddr);
 };

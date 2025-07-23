@@ -1,11 +1,12 @@
 #pragma once
 #include <string>
 #include <optional>
+#include <vector>
 
 class IMSI{
 public:
     static std::optional<IMSI> fromStdString(const std::string &imsiStr);
-    static std::optional<IMSI> fromBCDBytes(const std::string &bcdStr);
+    static std::optional<IMSI> fromBCDBytes(const std::vector<unsigned char> &bcdStr);
     const std::string& toStdString() const;
     std::string toBCDBytes() const;
     IMSI(const IMSI &other) = default;

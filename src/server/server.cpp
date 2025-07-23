@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sys/epoll.h>
@@ -180,6 +181,8 @@ void Server::runEpollThread() {
   constexpr size_t MAX_EVENTS = 1024;
   constexpr int EPOLL_TIMEOUT_MSEC = 500;
   epoll_event events[MAX_EVENTS];
+
+  // Main loop 
   while (this->running) {
     int numEvents = epoll_wait(udpSocketContext.epollFD, events, MAX_EVENTS,
                                EPOLL_TIMEOUT_MSEC);
@@ -198,7 +201,7 @@ void Server::runEpollThread() {
                                      udpSocketContext.recvBuffer.begin() +
                                          recvLen};
             this->udpThreadPool->enqueue(
-                [this, packet]() { processUdpPacket(std::move(packet)); });
+                [this, packet, clientAddr]() { processUdpPacket(std::move(packet),clientAddr); });
             // TODO: enqueue task into udpThreadPool
           } else if (recvLen == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
             // TODO: handle recv error
@@ -209,5 +212,16 @@ void Server::runEpollThread() {
       // TODO: handle error and/or log it
       continue;
     }
+  }
+
+  // TODO: implement graceful ofload here or maybe in main run() method???
+
+
+}
+
+
+void Server::processUdpPacket(std::vector<char> packet, const sockaddr_in& clientAddr){
+  {
+    std::unique_lock<std::mutex> lock(sessionMutex);
   }
 }
