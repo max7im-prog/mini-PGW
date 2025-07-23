@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 
 std::optional<Server::ServerConfig>
 Server::parseConfigFile(const std::string &configFile) {
@@ -111,44 +112,102 @@ bool Server::init(const ServerConfig &config) {
     return false;
   }
 
-  udpSocket.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
-  if (udpSocket.udpSocketFD < 0) {
+  udpSocketContext.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
+  if (udpSocketContext.udpSocketFD < 0) {
     return false;
   }
 
-  udpSocket.udpAddr = {};
-  udpSocket.udpAddr.sin_family = AF_INET;
-  udpSocket.udpAddr.sin_port = htons(config.udpPort);
-  if (inet_pton(AF_INET, config.ip.c_str(), &udpSocket.udpAddr.sin_addr) != 1) {
+  udpSocketContext.udpAddr = {};
+  udpSocketContext.udpAddr.sin_family = AF_INET;
+  udpSocketContext.udpAddr.sin_port = htons(config.udpPort);
+  if (inet_pton(AF_INET, config.ip.c_str(),
+                &udpSocketContext.udpAddr.sin_addr) != 1) {
     return false;
   }
 
-  if (bind(udpSocket.udpSocketFD, (sockaddr *)&udpSocket.udpAddr,
-           sizeof(udpSocket.udpAddr)) < 0) {
+  if (bind(udpSocketContext.udpSocketFD, (sockaddr *)&udpSocketContext.udpAddr,
+           sizeof(udpSocketContext.udpAddr)) < 0) {
     return false;
   }
 
   // Set non-blocking
-  int flags = fcntl(udpSocket.udpSocketFD, F_GETFL, 0);
+  int flags = fcntl(udpSocketContext.udpSocketFD, F_GETFL, 0);
   if (flags < 0 ||
-      fcntl(udpSocket.udpSocketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
+      fcntl(udpSocketContext.udpSocketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
     return false;
   }
 
-  udpSocket.epollFD = epoll_create1(0);
-  if (udpSocket.epollFD < 0) {
+  udpSocketContext.epollFD = epoll_create1(0);
+  if (udpSocketContext.epollFD < 0) {
     return false;
   }
 
   epoll_event ev{};
   ev.events = EPOLLIN;
-  ev.data.fd = udpSocket.udpSocketFD;
-  if (epoll_ctl(udpSocket.epollFD, EPOLL_CTL_ADD, udpSocket.udpSocketFD, &ev) <
-      0) {
+  ev.data.fd = udpSocketContext.udpSocketFD;
+  if (epoll_ctl(udpSocketContext.epollFD, EPOLL_CTL_ADD,
+                udpSocketContext.udpSocketFD, &ev) < 0) {
     return false;
   }
 
-  udpSocket.recvBuffer.resize(2048); // Adjust size as needed
+  udpSocketContext.recvBuffer.resize(2048); // Adjust size as needed
 
   return true;
+}
+
+void Server::deinit() {
+  if (udpSocketContext.udpSocketFD != -1) {
+    close(udpSocketContext.udpSocketFD);
+    udpSocketContext.udpSocketFD = -1;
+  }
+
+  if (udpSocketContext.epollFD != -1) {
+    close(udpSocketContext.epollFD);
+    udpSocketContext.epollFD = -1;
+  }
+
+  udpThreadPool.reset();
+
+  {
+    std::lock_guard<std::mutex> lock(sessionMutex);
+    sessions.clear();
+  }
+}
+
+Server::~Server() { deinit(); }
+
+void Server::runEpollThread() {
+  constexpr size_t MAX_EVENTS = 1024;
+  constexpr int EPOLL_TIMEOUT_MSEC = 500;
+  epoll_event events[MAX_EVENTS];
+  while (this->running) {
+    int numEvents = epoll_wait(udpSocketContext.epollFD, events, MAX_EVENTS,
+                               EPOLL_TIMEOUT_MSEC);
+    if (numEvents > 0) {
+      for (int i = 0; i < numEvents; i++) {
+        if ((events[i].events & EPOLLIN) &&
+            events[i].data.fd == udpSocketContext.udpSocketFD) {
+          sockaddr_in clientAddr{};
+          socklen_t addrLen = sizeof(clientAddr);
+          ssize_t recvLen = recvfrom(
+              udpSocketContext.udpSocketFD, udpSocketContext.recvBuffer.data(),
+              udpSocketContext.recvBuffer.size(), 0,
+              reinterpret_cast<sockaddr *>(&clientAddr), &addrLen);
+          if (recvLen > 0) {
+            std::vector<char> packet{udpSocketContext.recvBuffer.begin(),
+                                     udpSocketContext.recvBuffer.begin() +
+                                         recvLen};
+            this->udpThreadPool->enqueue(
+                [this, packet]() { processUdpPacket(std::move(packet)); });
+            // TODO: enqueue task into udpThreadPool
+          } else if (recvLen == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            // TODO: handle recv error
+          }
+        }
+      }
+    } else if (numEvents == -1 && errno == EINTR) {
+      // TODO: handle error and/or log it
+      continue;
+    }
+  }
 }

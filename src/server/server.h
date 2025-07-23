@@ -27,15 +27,19 @@ public:
   void run();
   static std::unique_ptr<Server> fromConfigFile(const std::string &configFile);
   static std::unique_ptr<Server> fromConfig(const ServerConfig &config);
+  ~Server();
   Server(Server &other) = delete;
   Server &operator=(Server &other) = delete;
   Server(Server &&other) = delete;
   Server &operator=(Server &&other) = delete;
 
+  std::atomic<bool> running; // Main flag controlling the execution of epoll thread
+
 private:
   static std::optional<ServerConfig>
   parseConfigFile(const std::string &configFile);
   bool init(const ServerConfig &config);
+  void deinit();
   Server() = default;
 
   ServerConfig config;
@@ -50,8 +54,14 @@ private:
     sockaddr_in udpAddr;
     int epollFD;
     std::vector<char> recvBuffer;
-  } udpSocket;
+  } udpSocketContext;
 
   std::map<IMSI, Session> sessions;
   std::mutex sessionMutex;
+
+  void runEpollThread();
+  void runHttpThread();
+  void runCleanupThread();
+
+  void processUdpPacket(std::vector<char> packet);
 };
