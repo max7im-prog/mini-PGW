@@ -73,3 +73,11 @@ Server::parseConfigFile(const std::string &configFile) {
 
   return serverConfig;
 }
+
+std::optional<Server> Server::fromConfigFile(const std::string &configFile){
+  auto config = Server::parseConfigFile(configFile);
+  if(!config.has_value()){
+    return std::nullopt;
+  }
+  return Server::fromConfig(config.value());
+}

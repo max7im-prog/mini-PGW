@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <set>
+#include <thread>
 #include "imsi.h"
 
 class Server {
@@ -25,10 +26,14 @@ public:
   Server &operator=(Server &&other) = default;
 
 private:
-  std::optional<ServerConfig> parseConfigFile(const std::string &configFile);
+  static std::optional<ServerConfig> parseConfigFile(const std::string &configFile);
   bool init(const ServerConfig &config);
   Server() = default;
   Server(Server &other) = delete;
   Server &operator=(Server &other) = delete;
   ServerConfig config;
+
+  std::thread epollThread;
+  std::thread httpThread;
+  std::thread cleanupThread;
 };
