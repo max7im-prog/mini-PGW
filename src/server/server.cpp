@@ -259,6 +259,9 @@ void Server::run() {
   epollThread = std::thread(&Server::runEpollThread, this);
   // httpThread = std::thread(&Server::runHttpThread,this);
   // cleanupThread = std::thread(&Server::runCleanupThread,this);
+  sleep(5); // TODO: remove testing code
+  running = false;
+
 
   if (epollThread.joinable()) {
     epollThread.join();
@@ -272,3 +275,19 @@ void Server::run() {
 
   deinit();
 }
+
+void Server::sendUdpPacket(const std::string &response,
+                           const sockaddr_in &clientAddr) {
+    auto result = sendto(
+        udpSocketContext.udpSocketFD,
+        response.data(),
+        response.size(),
+        0,
+        reinterpret_cast<const sockaddr*>(&clientAddr),
+        sizeof(clientAddr)
+    );
+    if (result == -1) {
+        // TODO: log failure to send
+    }
+}
+

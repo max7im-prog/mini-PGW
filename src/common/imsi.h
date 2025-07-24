@@ -13,11 +13,12 @@ public:
     IMSI(IMSI &&other) = default;
     IMSI& operator=(const IMSI& other) = default;
     IMSI& operator=(IMSI&& other) = default;
+    IMSI()=default;
 
     // Lexicographical, for use with std::set, should not be used directly
     bool operator<(const IMSI &other) const;
 private:
-    IMSI()=default;
+    
     IMSI(const std::string& imsiStr);
     std::string imsi;
 };
