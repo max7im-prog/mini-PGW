@@ -2,13 +2,16 @@
 #include "imsi.h"
 #include "session.h"
 #include "threadPool.h"
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <netinet/in.h>
-#include <sys/socket.h>
 #include <optional>
+#include <queue>
 #include <set>
 #include <string>
+#include <sys/socket.h>
 #include <thread>
 
 class Server {
@@ -34,10 +37,9 @@ public:
   Server(Server &&other) = delete;
   Server &operator=(Server &&other) = delete;
 
-  
-
 private:
-  void sendUdpPacket(const std::string& response,const sockaddr_in &clientAddr);
+  void sendUdpPacket(const std::string &response,
+                     const sockaddr_in &clientAddr);
   static std::optional<ServerConfig>
   parseConfigFile(const std::string &configFile);
   bool init(const ServerConfig &config);
@@ -58,16 +60,28 @@ private:
     std::vector<unsigned char> recvBuffer;
   } udpSocketContext;
 
+  struct CleanupContext {
+    struct ExpirationEntry {
+      std::chrono::steady_clock::time_point expiration;
+      IMSI imsi;
+      bool operator>(const ExpirationEntry &other) const {
+        return expiration > other.expiration; 
+      }
+    };
+    std::priority_queue<ExpirationEntry,std::vector<ExpirationEntry>,std::greater<>> cleanupQueue;
+    std::condition_variable cleanupCV;
+  } cleanupContext;
+
   std::map<IMSI, Session> sessions;
   std::mutex sessionMutex;
 
   void runEpollThread();
   void runHttpThread();
   void runCleanupThread();
+  void addSession(IMSI imsi, std::chrono::time_point<std::chrono::steady_clock> expiration);
 
   void processUdpPacket(std::vector<unsigned char> packet,
                         const sockaddr_in &clientAddr);
 
-  std::atomic<bool>
-      running; // Main flag controlling the execution of epoll thread
+  std::atomic<bool> running; // Main flag controlling the execution of threads
 };

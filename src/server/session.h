@@ -7,4 +7,9 @@ public:
     Session() = default;
     IMSI imsi;
     std::chrono::time_point<std::chrono::steady_clock> expiration;
+
+    Session(Session &other) = default;
+    Session(Session &&other) = default;
+    Session& operator=(Session &other) = default;
+    Session& operator=(Session &&other) = default;
 };

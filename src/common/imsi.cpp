@@ -30,7 +30,8 @@ std::string IMSI::toBCDBytes() const {
   return bcd;
 }
 
-std::optional<IMSI> IMSI::fromBCDBytes(const std::vector<unsigned char> &bcdStr) {
+std::optional<IMSI>
+IMSI::fromBCDBytes(const std::vector<unsigned char> &bcdStr) {
   static constexpr uint8_t headerSize = 4;
   std::string imsiStr;
 
@@ -83,3 +84,5 @@ std::optional<IMSI> IMSI::fromStdString(const std::string &imsiStr) {
 IMSI::IMSI(const std::string &imsiStr) : imsi(imsiStr) {}
 
 bool IMSI::operator<(const IMSI &other) const { return imsi < other.imsi; }
+
+bool IMSI::operator==(const IMSI &other) const { return imsi == other.imsi; };

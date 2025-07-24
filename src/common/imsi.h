@@ -17,6 +17,8 @@ public:
 
     // Lexicographical, for use with std::set, should not be used directly
     bool operator<(const IMSI &other) const;
+
+    bool operator==(const IMSI &other) const;
 private:
     
     IMSI(const std::string& imsiStr);
