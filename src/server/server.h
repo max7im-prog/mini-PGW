@@ -34,10 +34,10 @@ public:
   Server(Server &&other) = delete;
   Server &operator=(Server &&other) = delete;
 
-  std::atomic<bool>
-      running; // Main flag controlling the execution of epoll thread
+  
 
 private:
+  void sendUdpPacket(const std::string& response,const sockaddr_in &clientAddr);
   static std::optional<ServerConfig>
   parseConfigFile(const std::string &configFile);
   bool init(const ServerConfig &config);
@@ -55,7 +55,7 @@ private:
     int udpSocketFD;
     sockaddr_in udpAddr;
     int epollFD;
-    std::vector<char> recvBuffer;
+    std::vector<unsigned char> recvBuffer;
   } udpSocketContext;
 
   std::map<IMSI, Session> sessions;
@@ -65,6 +65,9 @@ private:
   void runHttpThread();
   void runCleanupThread();
 
-  void processUdpPacket(std::vector<char> packet,
+  void processUdpPacket(std::vector<unsigned char> packet,
                         const sockaddr_in &clientAddr);
+
+  std::atomic<bool>
+      running; // Main flag controlling the execution of epoll thread
 };

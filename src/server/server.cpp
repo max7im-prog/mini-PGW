@@ -1,6 +1,7 @@
 #include "server.h"
 #include "nlohmann/json_fwd.hpp"
 #include <arpa/inet.h>
+#include <chrono>
 #include <fcntl.h>
 #include <fstream>
 #include <memory>
@@ -182,7 +183,7 @@ void Server::runEpollThread() {
   constexpr int EPOLL_TIMEOUT_MSEC = 500;
   epoll_event events[MAX_EVENTS];
 
-  // Main loop 
+  // Main loop
   while (this->running) {
     int numEvents = epoll_wait(udpSocketContext.epollFD, events, MAX_EVENTS,
                                EPOLL_TIMEOUT_MSEC);
@@ -197,11 +198,12 @@ void Server::runEpollThread() {
               udpSocketContext.recvBuffer.size(), 0,
               reinterpret_cast<sockaddr *>(&clientAddr), &addrLen);
           if (recvLen > 0) {
-            std::vector<char> packet{udpSocketContext.recvBuffer.begin(),
-                                     udpSocketContext.recvBuffer.begin() +
-                                         recvLen};
-            this->udpThreadPool->enqueue(
-                [this, packet, clientAddr]() { processUdpPacket(std::move(packet),clientAddr); });
+            std::vector<unsigned char> packet{
+                udpSocketContext.recvBuffer.begin(),
+                udpSocketContext.recvBuffer.begin() + recvLen};
+            this->udpThreadPool->enqueue([this, packet, clientAddr]() {
+              processUdpPacket(std::move(packet), clientAddr);
+            });
             // TODO: enqueue task into udpThreadPool
           } else if (recvLen == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
             // TODO: handle recv error
@@ -215,13 +217,58 @@ void Server::runEpollThread() {
   }
 
   // TODO: implement graceful ofload here or maybe in main run() method???
-
-
 }
 
+void Server::processUdpPacket(std::vector<unsigned char> packet,
+                              const sockaddr_in &clientAddr) {
+  enum Response { accepted, rejected } response = Response::rejected;
+  auto imsi = IMSI::fromBCDBytes(packet);
 
-void Server::processUdpPacket(std::vector<char> packet, const sockaddr_in& clientAddr){
-  {
-    std::unique_lock<std::mutex> lock(sessionMutex);
+  if (imsi.has_value()) {
+    {
+      std::unique_lock<std::mutex> lock(sessionMutex);
+      if (config.blacklist.find(imsi.value()) != config.blacklist.end()) {
+        response = Response::rejected;
+      } else {
+        response = Response::accepted;
+        std::chrono::time_point<std::chrono::steady_clock> newExpiration =
+            std::chrono::steady_clock::now() +
+            std::chrono::seconds(config.sessionTimeoutSec);
+        if (sessions.find(imsi.value()) != sessions.end()) {
+          sessions[imsi.value()].expiration = newExpiration;
+        } else {
+          sessions[imsi.value()] = Session(imsi.value(), newExpiration);
+        }
+      }
+    }
+  } else {
+    response = Response::rejected;
   }
+
+  switch (response) {
+  case Response::accepted:
+    sendUdpPacket("accepted", clientAddr);
+    break;
+  case Response::rejected:
+    sendUdpPacket("rejected", clientAddr);
+    break;
+  }
+}
+
+void Server::run() {
+  epollThread = std::thread(&Server::runEpollThread, this);
+  // httpThread = std::thread(&Server::runHttpThread,this);
+  // cleanupThread = std::thread(&Server::runCleanupThread,this);
+
+  if (epollThread.joinable()) {
+    epollThread.join();
+  }
+  // if(httpThread.joinable()){
+  //   httpThread.join();
+  // }
+  // if(cleanupThread.joinable()){
+  //   cleanupThread.join();
+  // }
+
+  deinit();
 }
