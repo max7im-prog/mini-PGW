@@ -6,6 +6,7 @@ int main(int argc, char *argv[]){
     config.blacklist = {};
     config.ip = "127.0.0.1";
     config.udpPort = 8080;
+    config.httpPort = 9000;
     config.numUdpThreads = 5;
     config.sessionTimeoutSec = 30;
 

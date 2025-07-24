@@ -4,6 +4,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <fstream>
+#include <httplib.h>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -260,23 +261,19 @@ void Server::run() {
   running = true;
   epollThread = std::thread(&Server::runEpollThread, this);
   std::cout << "epoll thread running" << std::endl;
-  // httpThread = std::thread(&Server::runHttpThread,this);
+  httpThread = std::thread(&Server::runHttpThread, this);
+  std::cout << "http thread running" << std::endl;
   cleanupThread = std::thread(&Server::runCleanupThread, this);
   std::cout << "cleanup thread running" << std::endl;
-  // std::cout << "waiting 1 sec" << std::endl;
-  // sleep(1); // TODO: remove testing code
-  // running = false;
-  std::cout << "stop running" << std::endl;
-
-  // cleanupContext.cleanupCV.notify_one();
 
   if (epollThread.joinable()) {
     epollThread.join();
   }
   std::cout << "epoll thread joined" << std::endl;
-  // if(httpThread.joinable()){
-  //   httpThread.join();
-  // }
+  if (httpThread.joinable()) {
+    httpThread.join();
+  }
+  std::cout << "http thread joined" << std::endl;
   if (cleanupThread.joinable()) {
     cleanupThread.join();
   }
@@ -412,5 +409,22 @@ void Server::addSession(
 
   if (shouldNotify) {
     cleanupContext.cleanupCV.notify_one();
+  }
+}
+
+void Server::runHttpThread() {
+  httplib::Server svr;
+
+  svr.Get("/stop", [&,this](const httplib::Request &req, httplib::Response &res) {
+    running = false;
+    cleanupContext.cleanupCV.notify_one(); // Wake cleanup thread
+    res.set_content("Server stopping", "text/plain");
+    svr.stop();
+  });
+
+  // Start listening (blocking call)
+  if (!svr.listen(config.ip, config.httpPort)) { // Example HTTP port
+    std::cerr << "Failed to start HTTP server" << std::endl;
+    return;
   }
 }

@@ -13,6 +13,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <thread>
+#include <httplib.h>
 
 class Server {
 public:
@@ -65,10 +66,12 @@ private:
       std::chrono::steady_clock::time_point expiration;
       IMSI imsi;
       bool operator>(const ExpirationEntry &other) const {
-        return expiration > other.expiration; 
+        return expiration > other.expiration;
       }
     };
-    std::priority_queue<ExpirationEntry,std::vector<ExpirationEntry>,std::greater<>> cleanupQueue;
+    std::priority_queue<ExpirationEntry, std::vector<ExpirationEntry>,
+                        std::greater<>>
+        cleanupQueue;
     std::condition_variable cleanupCV;
   } cleanupContext;
 
@@ -78,7 +81,9 @@ private:
   void runEpollThread();
   void runHttpThread();
   void runCleanupThread();
-  void addSession(IMSI imsi, std::chrono::time_point<std::chrono::steady_clock> expiration);
+  void
+  addSession(IMSI imsi,
+             std::chrono::time_point<std::chrono::steady_clock> expiration);
 
   void processUdpPacket(std::vector<unsigned char> packet,
                         const sockaddr_in &clientAddr);
