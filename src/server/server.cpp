@@ -257,17 +257,18 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
 }
 
 void Server::run() {
+  running = true;
   epollThread = std::thread(&Server::runEpollThread, this);
   std::cout << "epoll thread running" << std::endl;
   // httpThread = std::thread(&Server::runHttpThread,this);
   cleanupThread = std::thread(&Server::runCleanupThread, this);
   std::cout << "cleanup thread running" << std::endl;
-  std::cout << "waiting 1 sec" << std::endl;
-  sleep(1); // TODO: remove testing code
-  running = false;
+  // std::cout << "waiting 1 sec" << std::endl;
+  // sleep(1); // TODO: remove testing code
+  // running = false;
   std::cout << "stop running" << std::endl;
 
-  cleanupContext.cleanupCV.notify_one();
+  // cleanupContext.cleanupCV.notify_one();
 
   if (epollThread.joinable()) {
     epollThread.join();
@@ -282,7 +283,7 @@ void Server::run() {
   std::cout << "cleanup thread joined" << std::endl;
 
   deinit();
-  std::cout << "deinit" << std::endl;
+  std::cout << "deinit lol" << std::endl;
 }
 
 void Server::sendUdpPacket(const std::string &response,
