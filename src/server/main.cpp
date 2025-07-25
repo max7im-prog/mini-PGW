@@ -9,7 +9,7 @@ int main(int argc, char *argv[]){
     config.udpPort = 8080;
     config.httpPort = 9000;
     config.numUdpThreads = 5;
-    config.sessionTimeoutSec = 30;
+    config.sessionTimeoutSec = 3;
     config.logLevel = "DEBUG";
     config.logFileName = "logs/server.log";
     config.cdrFileName = "logs/cdr.log";

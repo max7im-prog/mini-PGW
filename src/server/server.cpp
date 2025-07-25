@@ -268,13 +268,14 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
       if (config.blacklist.find(imsi.value()) != config.blacklist.end()) {
         response = CDREvent::EventType::rejected;
       } else {
-        response = CDREvent::EventType::created;
         std::chrono::time_point<std::chrono::steady_clock> newExpiration =
             std::chrono::steady_clock::now() +
             std::chrono::seconds(config.sessionTimeoutSec);
         if (sessions.find(imsi.value()) != sessions.end()) {
+          response = CDREvent::EventType::prolonged;
           sessions[imsi.value()].expiration = newExpiration;
         } else {
+          response = CDREvent::EventType::created;
           addSession(imsi.value(), newExpiration);
         }
       }
@@ -294,10 +295,15 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
     sendUdpPacket("rejected", clientAddr);
     imsi = IMSI::fromStdString("0");
     break;
+  case CDREvent::EventType::prolonged:
+    sendUdpPacket("created",
+                  clientAddr); // Still return "created" to client as he does
+                               // not need to know the insides of the code
+    break;
   case CDREvent::EventType::deleted:
     break;
   }
-  
+
   if (imsi.has_value()) {
     CDREvent event(imsi.value(), std::chrono::system_clock::now(), response);
     logCDR(event);
@@ -312,6 +318,10 @@ void Server::run() {
   logEvent("http thread started");
   cleanupThread = std::thread(&Server::runCleanupThread, this);
   logEvent("cleanup thread started");
+
+  std::cout << "running server" << std::endl;
+  std::cout << "UDP: " << config.ip << ":" << config.udpPort << std::endl;
+  std::cout << "HTTP: " << config.ip << ":" << config.httpPort << std::endl;
 
   if (epollThread.joinable()) {
     epollThread.join();
@@ -361,17 +371,23 @@ void Server::runCleanupThread() {
       if (topEntry.expiration > now)
         break;
 
-      cleanupContext.cleanupQueue.pop();
-
       auto it = sessions.find(topEntry.imsi);
       if (it != sessions.end()) {
         if (it->second.expiration <= now) {
-          sessions.erase(it); // expired
-          // CDREvent event(it->second.imsi,it->second.expiration,CDREvent::EventType::deleted);
-          // logCDR(event);
+          // Session has expired
+          CDREvent event(it->second.imsi, std::chrono::system_clock::now(),
+                         CDREvent::EventType::deleted);
+          sessions.erase(it);
+          logCDR(event);
+        } else {
+          // Session has been prolonged, reschedule cleanup
+          CleanupContext::ExpirationEntry newEntry{};
+          newEntry.imsi = topEntry.imsi;
+          newEntry.expiration = it->second.expiration;
+          cleanupContext.cleanupQueue.push(newEntry);
         }
-        // else: just ignore stale entry, no reschedule needed
       }
+      cleanupContext.cleanupQueue.pop();
     }
   }
 }

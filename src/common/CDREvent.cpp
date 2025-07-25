@@ -15,22 +15,24 @@ std::string CDREvent::toString() const {
   std::time_t temp = std::chrono::system_clock::to_time_t(timestamp);
   std::tm tm_buf;
   localtime_r(&temp, &tm_buf);
-  oss << std::put_time(&tm_buf, "%Y%m%d%H%M");
+  oss << std::put_time(&tm_buf, "%Y/%m/%d/%H/%M");
 
   if (eventType != EventType::wrongIMSI) {
     oss << " " << imsi.toStdString();
+    oss << " ";
   }
-
-  oss << " ";
   switch (eventType) {
   case EventType::created:
-    oss << "created session";
+    oss << "created";
     break;
   case EventType::rejected:
-    oss << "rejected session";
+    oss << "rejected";
     break;
   case EventType::deleted:
-    oss << "deleted session";
+    oss << "deleted";
+    break;
+  case EventType::prolonged:
+    oss << "prolonged";
     break;
   case EventType::wrongIMSI:
     oss << "Invalid IMSI";

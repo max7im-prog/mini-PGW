@@ -10,6 +10,7 @@ public:
     created,
     rejected,
     deleted,
+    prolonged,
     wrongIMSI,
   };
 
