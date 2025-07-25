@@ -6,6 +6,7 @@
 #include "spdlog/spdlog.h"
 #include <arpa/inet.h>
 #include <chrono>
+#include <condition_variable>
 #include <fcntl.h>
 #include <fstream>
 #include <httplib.h>
@@ -16,6 +17,7 @@
 #include <optional>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <thread>
 
 std::optional<Server::ServerConfig>
 Server::parseConfigFile(const std::string &configFile) {
@@ -67,11 +69,16 @@ Server::parseConfigFile(const std::string &configFile) {
     return std::nullopt;
   serverConfig.sessionTimeoutSec = data["sessionTimeoutSec"].get<uint32_t>();
 
-  if (!data.contains("gracefulShutdownTimeSec") ||
-      !data["gracefulShutdownTimeSec"].is_number_unsigned())
+  if (!data.contains("maxShutdownTimeSec") ||
+      !data["maxShutdownTimeSec"].is_number_unsigned())
     return std::nullopt;
-  serverConfig.gracefulShutdownTimeSec =
-      data["gracefulShutdownTimeSec"].get<uint32_t>();
+  serverConfig.maxShutdownTimeSec = data["maxShutdownTimeSec"].get<uint32_t>();
+
+  if (!data.contains("preferredShutdownRateSessionsPerSec") ||
+      !data["preferredShutdownRateSessionsPerSec"].is_number_unsigned())
+    return std::nullopt;
+  serverConfig.preferredShutdownRateSessionsPerSec =
+      data["preferredShutdownRateSessionsPerSec"].get<uint32_t>();
 
   // Blacklist
   if (data.contains("blacklist")) {
@@ -349,45 +356,87 @@ void Server::sendUdpPacket(const std::string &response,
 }
 
 void Server::runCleanupThread() {
-  std::unique_lock<std::mutex> lock(sessionMutex);
+  {
+    std::unique_lock<std::mutex> lock(sessionMutex);
 
-  while (running) {
-    if (cleanupContext.cleanupQueue.empty()) {
-      cleanupContext.cleanupCV.wait(lock);
-      continue;
-    }
-
-    auto now = std::chrono::steady_clock::now();
-    auto next = cleanupContext.cleanupQueue.top();
-
-    if (next.expiration > now) {
-      cleanupContext.cleanupCV.wait_until(lock, next.expiration);
-      continue;
-    }
-
-    // Process all expired sessions
-    while (!cleanupContext.cleanupQueue.empty()) {
-      auto topEntry = cleanupContext.cleanupQueue.top();
-      if (topEntry.expiration > now)
-        break;
-
-      auto it = sessions.find(topEntry.imsi);
-      if (it != sessions.end()) {
-        if (it->second.expiration <= now) {
-          // Session has expired
-          CDREvent event(it->second.imsi, std::chrono::system_clock::now(),
-                         CDREvent::EventType::deleted);
-          sessions.erase(it);
-          logCDR(event);
-        } else {
-          // Session has been prolonged, reschedule cleanup
-          CleanupContext::ExpirationEntry newEntry{};
-          newEntry.imsi = topEntry.imsi;
-          newEntry.expiration = it->second.expiration;
-          cleanupContext.cleanupQueue.push(newEntry);
-        }
+    while (running) {
+      if (cleanupContext.cleanupQueue.empty()) {
+        cleanupContext.cleanupCV.wait(lock);
+        continue;
       }
-      cleanupContext.cleanupQueue.pop();
+
+      auto now = std::chrono::steady_clock::now();
+      auto next = cleanupContext.cleanupQueue.top();
+
+      if (next.expiration > now) {
+        cleanupContext.cleanupCV.wait_until(lock, next.expiration);
+        continue;
+      }
+
+      // Process all expired sessions
+      while (!cleanupContext.cleanupQueue.empty()) {
+        auto topEntry = cleanupContext.cleanupQueue.top();
+        if (topEntry.expiration > now)
+          break;
+
+        auto it = sessions.find(topEntry.imsi);
+        if (it != sessions.end()) {
+          if (it->second.expiration <= now) {
+            // Session has expired
+            CDREvent event(it->second.imsi, std::chrono::system_clock::now(),
+                           CDREvent::EventType::deleted);
+            sessions.erase(it);
+            logCDR(event);
+          } else {
+            // Session has been prolonged, reschedule cleanup
+            CleanupContext::ExpirationEntry newEntry{};
+            newEntry.imsi = topEntry.imsi;
+            newEntry.expiration = it->second.expiration;
+            cleanupContext.cleanupQueue.push(newEntry);
+          }
+        }
+        cleanupContext.cleanupQueue.pop();
+      }
+    }
+  }
+
+  // Graceful shutdown
+  std::vector<IMSI> toCleanup;
+  {
+    std::unique_lock<std::mutex> lock(sessionMutex);
+    for (auto &pair : sessions) {
+      toCleanup.push_back(pair.first);
+    }
+  }
+
+  if (toCleanup.empty())
+    return;
+
+  std::chrono::nanoseconds shutdownPeriod;
+  if (config.maxShutdownTimeSec > 0 &&
+      float(config.maxShutdownTimeSec) >
+          float(toCleanup.size()) /
+              float(config.preferredShutdownRateSessionsPerSec)) {
+    shutdownPeriod = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(
+            1.0 / config.preferredShutdownRateSessionsPerSec));
+  } else {
+    shutdownPeriod = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(config.maxShutdownTimeSec) /
+        toCleanup.size());
+  }
+
+  {
+    std::unique_lock<std::mutex> lock(sessionMutex);
+    for (auto &imsi : toCleanup) {
+      lock.unlock();
+      std::this_thread::sleep_for(shutdownPeriod);
+      lock.lock();
+
+      CDREvent event(imsi, std::chrono::system_clock::now(),
+                     CDREvent::EventType::deleted);
+      sessions.erase(imsi);
+      logCDR(event);
     }
   }
 }

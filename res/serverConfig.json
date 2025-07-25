@@ -1,0 +1,15 @@
+{
+  "numUdpThreads": 5,
+  "ip": "127.0.0.1",
+  "udpPort": 8080,
+  "httpPort": 9000,
+  "sessionTimeoutSec": 30,
+  "maxShutdownTimeSec": 10,
+  "preferredShutdownRateSessionsPerSec":100,
+  "cdrFileName": "logs/cdr.log",
+  "logFileName": "logs/server.log",
+  "logLevel": "DEBUG",
+  "blacklist": [
+    "111"
+  ]
+}

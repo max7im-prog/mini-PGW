@@ -13,8 +13,15 @@ int main(int argc, char *argv[]){
     config.logLevel = "DEBUG";
     config.logFileName = "logs/server.log";
     config.cdrFileName = "logs/cdr.log";
+    // auto server = Server::fromConfig(config);
 
-    auto server = Server::fromConfig(config);
+    if(argc <2){
+        std::cout <<"Usage: " <<argv[0] << " <config file>" << std::endl;
+        return -1;
+    }
+    std::string configFile = argv[1];
+    auto server = Server::fromConfigFile(configFile);
+
     if (!server) {
         std::cerr << "Failed to create server.\n";
         return EXIT_FAILURE;

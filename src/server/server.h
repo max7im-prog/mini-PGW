@@ -27,7 +27,8 @@ public:
     uint16_t udpPort;
     uint16_t httpPort;
     uint32_t sessionTimeoutSec;
-    uint32_t gracefulShutdownTimeSec;
+    uint32_t maxShutdownTimeSec;
+    uint32_t preferredShutdownRateSessionsPerSec;
     std::string cdrFileName;
     std::string logFileName;
     std::string logLevel;
