@@ -10,10 +10,11 @@ public:
     created,
     rejected,
     deleted,
+    wrongIMSI,
   };
 
   CDREvent(const IMSI &imsi, Timestamp timestamp, EventType eventType);
-  std::string toString();
+  std::string toString() const;
 
   IMSI imsi;
   Timestamp timestamp;

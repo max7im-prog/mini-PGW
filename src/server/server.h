@@ -1,11 +1,13 @@
 #pragma once
 #include "imsi.h"
 #include "session.h"
+#include "spdlog/logger.h"
 #include "threadPool.h"
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <netinet/in.h>
 #include <optional>
 #include <queue>
@@ -14,6 +16,8 @@
 #include <sys/socket.h>
 #include <thread>
 #include <httplib.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include "CDREvent.h"
 
 class Server {
 public:
@@ -74,6 +78,14 @@ private:
         cleanupQueue;
     std::condition_variable cleanupCV;
   } cleanupContext;
+
+
+  struct LoggingContext{
+    std::shared_ptr<spdlog::logger> serverLogger;
+    std::shared_ptr<spdlog::logger> cdrLogger;
+  } loggingContext;
+  void logCDR(const CDREvent& cdrEvent);
+  void logEvent(const std::string& msg,spdlog::level::level_enum level = spdlog::level::debug);
 
   std::map<IMSI, Session> sessions;
   std::mutex sessionMutex;

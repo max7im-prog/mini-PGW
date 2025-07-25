@@ -10,12 +10,17 @@ CDREvent::CDREvent(const IMSI &imsi, Timestamp timestamp, EventType eventType)
 #include <iomanip>
 #include <sstream>
 
-std::string CDREvent::toString() {
+std::string CDREvent::toString() const {
   std::ostringstream oss;
   std::time_t temp = std::chrono::system_clock::to_time_t(timestamp);
-  oss << std::put_time(std::localtime(&temp), "%Y%m%d%H%M");
-  oss << " ";
-  oss << imsi.toStdString();
+  std::tm tm_buf;
+  localtime_r(&temp, &tm_buf);
+  oss << std::put_time(&tm_buf, "%Y%m%d%H%M");
+
+  if (eventType != EventType::wrongIMSI) {
+    oss << " " << imsi.toStdString();
+  }
+
   oss << " ";
   switch (eventType) {
   case EventType::created:
@@ -26,6 +31,9 @@ std::string CDREvent::toString() {
     break;
   case EventType::deleted:
     oss << "deleted session";
+    break;
+  case EventType::wrongIMSI:
+    oss << "Invalid IMSI";
     break;
   }
   return oss.str();

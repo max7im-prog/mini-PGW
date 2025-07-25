@@ -5,6 +5,7 @@ add_executable(
     ${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/threadPool.cpp
     ${CMAKE_SOURCE_DIR}/src/common/imsi.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/CDREvent.cpp
 )
 
 target_include_directories(pgw_server
@@ -17,4 +18,5 @@ target_link_libraries(pgw_server
     PRIVATE
     nlohmann_json::nlohmann_json
     httplib
+    spdlog
 )

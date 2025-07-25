@@ -1,5 +1,9 @@
 #include "server.h"
+#include "CDREvent.h"
 #include "nlohmann/json_fwd.hpp"
+#include "spdlog/common.h"
+#include "spdlog/sinks/rotating_file_sink.h"
+#include "spdlog/spdlog.h"
 #include <arpa/inet.h>
 #include <chrono>
 #include <fcntl.h>
@@ -154,7 +158,39 @@ bool Server::init(const ServerConfig &config) {
     return false;
   }
 
-  udpSocketContext.recvBuffer.resize(2048); // Adjust size as needed
+  udpSocketContext.recvBuffer.resize(2048);
+
+  loggingContext.serverLogger = spdlog::rotating_logger_mt(
+      "serverLogger", config.logFileName, 1048576 * 5, 3);
+  if (loggingContext.serverLogger == nullptr) {
+    return false;
+  }
+  loggingContext.serverLogger->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+  if (config.logLevel == "INFO") {
+    loggingContext.serverLogger->set_level(spdlog::level::info);
+  } else if (config.logLevel == "CRIT") {
+    loggingContext.serverLogger->set_level(spdlog::level::critical);
+  } else if (config.logLevel == "DEBUG") {
+    loggingContext.serverLogger->set_level(spdlog::level::debug);
+  } else if (config.logLevel == "ERROR") {
+    loggingContext.serverLogger->set_level(spdlog::level::err);
+  } else if (config.logLevel == "WARN") {
+    loggingContext.serverLogger->set_level(spdlog::level::warn);
+  } else if (config.logLevel == "TRACE") {
+    loggingContext.serverLogger->set_level(spdlog::level::trace);
+  } else if (config.logLevel == "OFF") {
+    loggingContext.serverLogger->set_level(spdlog::level::off);
+  }
+
+  loggingContext.cdrLogger = spdlog::rotating_logger_mt(
+      "cdrLogger", config.cdrFileName, 1048576 * 5, 3);
+  if (loggingContext.cdrLogger == nullptr) {
+    return false;
+  }
+  loggingContext.cdrLogger->set_pattern("%v");
+  loggingContext.cdrLogger->set_level(spdlog::level::info);
+
+  spdlog::flush_every(std::chrono::seconds(1));
 
   return true;
 }
@@ -223,16 +259,16 @@ void Server::runEpollThread() {
 
 void Server::processUdpPacket(std::vector<unsigned char> packet,
                               const sockaddr_in &clientAddr) {
-  enum Response { accepted, rejected } response = Response::rejected;
+  CDREvent::EventType response = CDREvent::EventType::rejected;
   auto imsi = IMSI::fromBCDBytes(packet);
 
   if (imsi.has_value()) {
     {
       std::unique_lock<std::mutex> lock(sessionMutex);
       if (config.blacklist.find(imsi.value()) != config.blacklist.end()) {
-        response = Response::rejected;
+        response = CDREvent::EventType::rejected;
       } else {
-        response = Response::accepted;
+        response = CDREvent::EventType::created;
         std::chrono::time_point<std::chrono::steady_clock> newExpiration =
             std::chrono::steady_clock::now() +
             std::chrono::seconds(config.sessionTimeoutSec);
@@ -244,43 +280,52 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
       }
     }
   } else {
-    response = Response::rejected;
+    response = CDREvent::EventType::wrongIMSI;
   }
 
   switch (response) {
-  case Response::accepted:
+  case CDREvent::EventType::created:
     sendUdpPacket("created", clientAddr);
     break;
-  case Response::rejected:
+  case CDREvent::EventType::rejected:
     sendUdpPacket("rejected", clientAddr);
     break;
+  case CDREvent::EventType::wrongIMSI:
+    sendUdpPacket("rejected", clientAddr);
+    imsi = IMSI::fromStdString("0");
+    break;
+  case CDREvent::EventType::deleted:
+    break;
+  }
+  
+  if (imsi.has_value()) {
+    CDREvent event(imsi.value(), std::chrono::system_clock::now(), response);
+    logCDR(event);
   }
 }
 
 void Server::run() {
   running = true;
   epollThread = std::thread(&Server::runEpollThread, this);
-  std::cout << "epoll thread running" << std::endl;
+  logEvent("epoll thread started");
   httpThread = std::thread(&Server::runHttpThread, this);
-  std::cout << "http thread running" << std::endl;
+  logEvent("http thread started");
   cleanupThread = std::thread(&Server::runCleanupThread, this);
-  std::cout << "cleanup thread running" << std::endl;
+  logEvent("cleanup thread started");
 
   if (epollThread.joinable()) {
     epollThread.join();
+    logEvent("epoll thread joined");
   }
-  std::cout << "epoll thread joined" << std::endl;
   if (httpThread.joinable()) {
     httpThread.join();
+    logEvent("http thread joined");
   }
-  std::cout << "http thread joined" << std::endl;
   if (cleanupThread.joinable()) {
     cleanupThread.join();
+    logEvent("cleanup thread joined");
   }
-  std::cout << "cleanup thread joined" << std::endl;
-
   deinit();
-  std::cout << "deinit lol" << std::endl;
 }
 
 void Server::sendUdpPacket(const std::string &response,
@@ -292,71 +337,6 @@ void Server::sendUdpPacket(const std::string &response,
     // TODO: log failure to send
   }
 }
-
-// void Server::runCleanupThread() {
-//   std::unique_lock<std::mutex> lock(sessionMutex);
-//   while (running) {
-//     if (cleanupContext.cleanupQueue.empty()) {
-//       cleanupContext.cleanupCV.wait(lock);
-//     } else {
-//       auto now = std::chrono::steady_clock::now();
-//       const auto& next = cleanupContext.cleanupQueue.top();
-//       if (next.expiration < now) {
-//         cleanupContext.cleanupQueue.pop();
-//         auto sesh = sessions.find(next.imsi);
-//         if (sesh != sessions.end()) {
-//           if (sesh->second.expiration > now) {
-//             // Reschedule
-//             CleanupContext::ExpirationEntry newEntry = {};
-//             newEntry.expiration = sesh->second.expiration;
-//             newEntry.imsi = sesh->second.imsi;
-//             cleanupContext.cleanupQueue.push(std::move(newEntry));
-//           } else {
-//             // Cleanup
-//             sessions.erase(sesh->second.imsi);
-//           }
-//         }
-//       } else {
-//         cleanupContext.cleanupCV.wait_until(lock, next.expiration);
-//       }
-//     }
-//   }
-// }
-
-// void Server::runCleanupThread() {
-//   std::unique_lock<std::mutex> lock(sessionMutex);
-//   while (running) {
-//     if (cleanupContext.cleanupQueue.empty()) {
-//       cleanupContext.cleanupCV.wait(lock);
-//     } else {
-//       auto now = std::chrono::steady_clock::now();
-//       const auto &next = cleanupContext.cleanupQueue.top();
-
-//       if (next.expiration <= now) {
-//         // Pop stale entries until we find a valid one
-//         cleanupContext.cleanupQueue.pop();
-
-//         auto it = sessions.find(next.imsi);
-//         if (it != sessions.end()) {
-//           if (it->second.expiration <= now) {
-//             // Expired -> remove session
-//             sessions.erase(it);
-//           } else {
-//             // Session was updated -> push updated expiration
-//             CleanupContext::ExpirationEntry updated{
-//                 it->second.expiration,
-//                 it->first // imsi
-//             };
-//             cleanupContext.cleanupQueue.push(std::move(updated));
-//           }
-//         }
-//       } else {
-//         // Wait until the next expiration or a new update
-//         cleanupContext.cleanupCV.wait_until(lock, next.expiration);
-//       }
-//     }
-//   }
-// }
 
 void Server::runCleanupThread() {
   std::unique_lock<std::mutex> lock(sessionMutex);
@@ -387,6 +367,8 @@ void Server::runCleanupThread() {
       if (it != sessions.end()) {
         if (it->second.expiration <= now) {
           sessions.erase(it); // expired
+          // CDREvent event(it->second.imsi,it->second.expiration,CDREvent::EventType::deleted);
+          // logCDR(event);
         }
         // else: just ignore stale entry, no reschedule needed
       }
@@ -415,16 +397,25 @@ void Server::addSession(
 void Server::runHttpThread() {
   httplib::Server svr;
 
-  svr.Get("/stop", [&,this](const httplib::Request &req, httplib::Response &res) {
-    running = false;
-    cleanupContext.cleanupCV.notify_one(); // Wake cleanup thread
-    res.set_content("Server stopping", "text/plain");
-    svr.stop();
-  });
+  svr.Get("/stop",
+          [&, this](const httplib::Request &req, httplib::Response &res) {
+            running = false;
+            cleanupContext.cleanupCV.notify_one(); // Wake cleanup thread
+            res.set_content("Server stopping", "text/plain");
+            svr.stop();
+          });
 
   // Start listening (blocking call)
   if (!svr.listen(config.ip, config.httpPort)) { // Example HTTP port
     std::cerr << "Failed to start HTTP server" << std::endl;
     return;
   }
+}
+
+void Server::logCDR(const CDREvent &cdrEvent) {
+  loggingContext.cdrLogger->info(cdrEvent.toString());
+}
+
+void Server::logEvent(const std::string &msg, spdlog::level::level_enum level) {
+  loggingContext.serverLogger->log(level, msg);
 }
