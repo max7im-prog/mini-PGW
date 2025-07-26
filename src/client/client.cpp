@@ -1,8 +1,11 @@
 #include "client.h"
+#include "spdlog/common.h"
 #include <arpa/inet.h>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <sstream>
+#include <string>
 #include <sys/epoll.h>
 std::optional<Client::ClientConfig>
 Client::parseConfigFile(const std::string &configFile) {
@@ -69,36 +72,12 @@ std::unique_ptr<Client> Client::fromConfig(const ClientConfig &config) {
 
 bool Client::init(const ClientConfig &config) {
 
-  udpSocketContext.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
-  if (udpSocketContext.udpSocketFD < 0) {
-    perror("socket");
-    return false;
-  }
-
-  udpSocketContext.recvBuffer.resize(2048);
-  udpSocketContext.epollFD = epoll_create1(0);
-  if (udpSocketContext.epollFD < 0) {
-    perror("epoll");
-    return false;
-  }
-
-  epoll_event ev{};
-  ev.events = EPOLLIN;
-  ev.data.fd = udpSocketContext.udpSocketFD;
-  if (epoll_ctl(udpSocketContext.epollFD, EPOLL_CTL_ADD,
-                udpSocketContext.udpSocketFD, &ev) < 0) {
-    perror("epoll_ctl");
-    close(udpSocketContext.udpSocketFD);
-    close(udpSocketContext.epollFD);
-    return false;
-  }
-
   clientLogger = spdlog::rotating_logger_mt("clientLogger", config.logFileName,
                                             1048576 * 5, 3);
   if (clientLogger == nullptr) {
+    std::cerr << "Failed to create logger: " << config.logFileName << std::endl;
     return false;
   }
-
   clientLogger->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
   if (config.logLevel == "INFO") {
     clientLogger->set_level(spdlog::level::info);
@@ -115,8 +94,37 @@ bool Client::init(const ClientConfig &config) {
   } else if (config.logLevel == "OFF") {
     clientLogger->set_level(spdlog::level::off);
   }
-
   spdlog::flush_every(std::chrono::seconds(1));
+
+  udpSocketContext.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
+  if (udpSocketContext.udpSocketFD < 0) {
+    std::ostringstream oss;
+    oss << "Socket error: " << strerror(errno);
+    logEvent(oss.str(), spdlog::level::err);
+    return false;
+  }
+
+  udpSocketContext.recvBuffer.resize(2048);
+  udpSocketContext.epollFD = epoll_create1(0);
+  if (udpSocketContext.epollFD < 0) {
+    std::ostringstream oss;
+    oss << "Epoll_create1 error: " << strerror(errno);
+    logEvent(oss.str(), spdlog::level::err);
+    return false;
+  }
+
+  epoll_event ev{};
+  ev.events = EPOLLIN;
+  ev.data.fd = udpSocketContext.udpSocketFD;
+  if (epoll_ctl(udpSocketContext.epollFD, EPOLL_CTL_ADD,
+                udpSocketContext.udpSocketFD, &ev) < 0) {
+    close(udpSocketContext.udpSocketFD);
+    close(udpSocketContext.epollFD);
+    std::ostringstream oss;
+    oss << "Epoll_ctl error: " << strerror(errno);
+    logEvent(oss.str(), spdlog::level::err);
+    return false;
+  }
 
   this->config = config;
 
@@ -128,7 +136,6 @@ void Client::deinit() {
     close(udpSocketContext.udpSocketFD);
     udpSocketContext.udpSocketFD = -1;
   }
-
   if (udpSocketContext.epollFD != -1) {
     close(udpSocketContext.epollFD);
     udpSocketContext.epollFD = -1;
@@ -149,7 +156,9 @@ void Client::run(const IMSI &imsi) {
   serverAddr.sin_family = AF_INET;
   serverAddr.sin_port = htons(config.serverPort);
   if (inet_pton(AF_INET, config.serverIp.c_str(), &serverAddr.sin_addr) <= 0) {
-    std::cerr << "Invalid address: " << config.serverIp << "\n";
+    std::ostringstream oss;
+    oss << "Invalid address: " << config.serverIp;
+    logEvent(oss.str(), spdlog::level::err);
     return;
   }
 
@@ -158,19 +167,25 @@ void Client::run(const IMSI &imsi) {
       sendto(udpSocketContext.udpSocketFD, bcdBytes.data(), bcdBytes.size(), 0,
              (sockaddr *)&serverAddr, sizeof(serverAddr));
   if (sent < 0) {
-    perror("sendto");
+    std::ostringstream oss;
+    oss << "Sendto error: " << strerror(errno);
+    logEvent(oss.str(), spdlog::level::err);
     return;
   }
+  {
+    std::ostringstream oss;
+    oss << "Sent IMSI " << imsi.toStdString() << " to " << config.serverIp
+        << ":" << config.serverPort;
+    logEvent(oss.str(), spdlog::level::info);
+  }
 
+  // Receive response
   epoll_event events[MAX_EVENTS];
-
   int32_t timeout = -1;
   if (config.hasTimeout) {
     timeout = config.clientTimeoutSec * 1000;
   }
-
   int n = epoll_wait(udpSocketContext.epollFD, events, MAX_EVENTS, timeout);
-
   sockaddr_in fromAddr{};
   socklen_t fromLen = sizeof(fromAddr);
   if (n > 0) {
@@ -182,14 +197,31 @@ void Client::run(const IMSI &imsi) {
                    reinterpret_cast<sockaddr *>(&fromAddr), &fromLen);
 
       if (recvSize < 0) {
-        perror("recvfrom");
+        std::ostringstream oss;
+        oss << "Recvfrom error: " << strerror(errno);
+        logEvent(oss.str(), spdlog::level::err);
         return;
       }
       size_t pos = (recvSize < 0) ? 0 : static_cast<size_t>(recvSize);
-      udpSocketContext.recvBuffer[std::min(pos,udpSocketContext.recvBuffer.size()-1)] = '\0';
-      if(!config.quiet){
-        std::cout << "Return value: " << udpSocketContext.recvBuffer.data() << std::endl;
+      udpSocketContext
+          .recvBuffer[std::min(pos, udpSocketContext.recvBuffer.size() - 1)] =
+          '\0';
+      {
+        std::ostringstream oss;
+        oss << "Response from " << inet_ntoa(fromAddr.sin_addr)
+        << ":" << ntohs(fromAddr.sin_port) << ": \""
+        << udpSocketContext.recvBuffer.data() << "\"";
+        logEvent(oss.str(), spdlog::level::info);
       }
+      if (!config.quiet) {
+        std::cout << "Response: " << udpSocketContext.recvBuffer.data()
+                  << std::endl;
+      }
+    }
+  } else if (n == 0) {
+    logEvent("Timed out", spdlog::level::info);
+    if (!config.quiet) {
+      std::cout << "Timed out" << std::endl;
     }
   }
 }

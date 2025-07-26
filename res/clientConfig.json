@@ -1,9 +1,9 @@
 {
-  "serverIp": "192.168.1.100",
+  "serverIp": "127.0.0.1",
   "serverPort": 8080,
   "hasTimeout": true,
   "clientTimeoutSec": 5,
-  "logFileName": "client.log",
+  "logFileName": "logs/client.log",
   "logLevel": "INFO",
   "quiet": false
 }

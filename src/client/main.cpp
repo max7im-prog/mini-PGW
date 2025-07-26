@@ -3,8 +3,6 @@
 #include <iostream>
 #include <string>
 
-
-
 // Helper: convert IMSI string to vector of bytes (simple ASCII bytes here)
 std::vector<unsigned char> imsiToBytes(const std::string &imsi) {
   return std::vector<unsigned char>(imsi.begin(), imsi.end());
