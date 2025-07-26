@@ -2,18 +2,6 @@
 #include <iostream>
 
 int main(int argc, char *argv[]){
-    Server::ServerConfig config = {};
-    config.blacklist = {};
-    config.blacklist.insert(IMSI::fromStdString("111").value());
-    config.ip = "127.0.0.1";
-    config.udpPort = 8080;
-    config.httpPort = 9000;
-    config.numUdpThreads = 5;
-    config.sessionTimeoutSec = 3;
-    config.logLevel = "DEBUG";
-    config.logFileName = "logs/server.log";
-    config.cdrFileName = "logs/cdr.log";
-    // auto server = Server::fromConfig(config);
 
     if(argc <2){
         std::cout <<"Usage: " <<argv[0] << " <config file>" << std::endl;

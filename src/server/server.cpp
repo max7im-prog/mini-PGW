@@ -15,6 +15,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <thread>
@@ -228,40 +229,50 @@ void Server::runEpollThread() {
   constexpr int EPOLL_TIMEOUT_MSEC = 500;
   epoll_event events[MAX_EVENTS];
 
-  // Main loop
+  logEvent("Epoll thread running");
+
   while (this->running) {
     int numEvents = epoll_wait(udpSocketContext.epollFD, events, MAX_EVENTS,
                                EPOLL_TIMEOUT_MSEC);
+
     if (numEvents > 0) {
       for (int i = 0; i < numEvents; i++) {
         if ((events[i].events & EPOLLIN) &&
             events[i].data.fd == udpSocketContext.udpSocketFD) {
+
           sockaddr_in clientAddr{};
           socklen_t addrLen = sizeof(clientAddr);
-          ssize_t recvLen = recvfrom(
-              udpSocketContext.udpSocketFD, udpSocketContext.recvBuffer.data(),
-              udpSocketContext.recvBuffer.size(), 0,
-              reinterpret_cast<sockaddr *>(&clientAddr), &addrLen);
+          ssize_t recvLen;
+
+          do {
+            recvLen =
+                recvfrom(udpSocketContext.udpSocketFD,
+                         udpSocketContext.recvBuffer.data(),
+                         udpSocketContext.recvBuffer.size(), 0,
+                         reinterpret_cast<sockaddr *>(&clientAddr), &addrLen);
+          } while (recvLen == -1 && errno == EINTR);
+
           if (recvLen > 0) {
-            std::vector<unsigned char> packet{
+            std::vector<unsigned char> packet(
                 udpSocketContext.recvBuffer.begin(),
-                udpSocketContext.recvBuffer.begin() + recvLen};
+                udpSocketContext.recvBuffer.begin() + recvLen);
             this->udpThreadPool->enqueue([this, packet, clientAddr]() {
               processUdpPacket(std::move(packet), clientAddr);
             });
-            // TODO: enqueue task into udpThreadPool
           } else if (recvLen == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            // TODO: handle recv error
+            logEvent(std::string("Recvfrom error: ") + strerror(errno),
+                     spdlog::level::err);
           }
         }
       }
-    } else if (numEvents == -1 && errno == EINTR) {
-      // TODO: handle error and/or log it
-      continue;
+    } else if (numEvents == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+      logEvent(std::string("epoll_wait error: ") + strerror(errno),
+               spdlog::level::err);
     }
   }
-
-  // TODO: implement graceful ofload here or maybe in main run() method???
 }
 
 void Server::processUdpPacket(std::vector<unsigned char> packet,
@@ -288,6 +299,9 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
       }
     }
   } else {
+    {
+      logEvent("Discarded packet with invalid IMSI", spdlog::level::debug);
+    }
     response = CDREvent::EventType::wrongIMSI;
   }
 
@@ -318,33 +332,31 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
 }
 
 void Server::run() {
-  logEvent("Server started",spdlog::level::info);
+  logEvent("Server started", spdlog::level::info);
   running = true;
   epollThread = std::thread(&Server::runEpollThread, this);
-  logEvent("epoll thread started");
   httpThread = std::thread(&Server::runHttpThread, this);
-  logEvent("http thread started");
   cleanupThread = std::thread(&Server::runCleanupThread, this);
-  logEvent("cleanup thread started");
 
-  std::cout << "running server" << std::endl;
+  std::cout << "Running server" << std::endl;
   std::cout << "UDP: " << config.ip << ":" << config.udpPort << std::endl;
   std::cout << "HTTP: " << config.ip << ":" << config.httpPort << std::endl;
 
   if (epollThread.joinable()) {
     epollThread.join();
-    logEvent("epoll thread joined");
+    logEvent("Epoll thread joined");
   }
   if (httpThread.joinable()) {
     httpThread.join();
-    logEvent("http thread joined");
+    logEvent("Http thread joined");
   }
   if (cleanupThread.joinable()) {
     cleanupThread.join();
-    logEvent("cleanup thread joined");
+    logEvent("Cleanup thread joined");
   }
   deinit();
-  logEvent("Server stopped",spdlog::level::info);
+  logEvent("Server stopped", spdlog::level::info);
+  std::cout <<"Server stopped" << std::endl;
 }
 
 void Server::sendUdpPacket(const std::string &response,
@@ -358,6 +370,7 @@ void Server::sendUdpPacket(const std::string &response,
 }
 
 void Server::runCleanupThread() {
+  logEvent("Cleanup thread running");
   {
     std::unique_lock<std::mutex> lock(sessionMutex);
 
@@ -403,6 +416,7 @@ void Server::runCleanupThread() {
   }
 
   // Graceful shutdown
+  logEvent("Graceful shutdown started");
   std::vector<IMSI> toCleanup;
   {
     std::unique_lock<std::mutex> lock(sessionMutex);
@@ -411,8 +425,10 @@ void Server::runCleanupThread() {
     }
   }
 
-  if (toCleanup.empty())
+  if (toCleanup.empty()) {
+    logEvent("Graceful shutdown complete");
     return;
+  }
 
   std::chrono::nanoseconds shutdownPeriod;
   if (config.maxShutdownTimeSec > 0 &&
@@ -441,6 +457,7 @@ void Server::runCleanupThread() {
       logCDR(event);
     }
   }
+  logEvent("Graceful shutdown complete");
 }
 
 void Server::addSession(
@@ -458,6 +475,8 @@ void Server::addSession(
 
   if (shouldNotify) {
     cleanupContext.cleanupCV.notify_one();
+    logEvent("Cleanup queue empty - notifying cleanup thread",
+             spdlog::level::debug);
   }
 }
 
@@ -466,38 +485,47 @@ void Server::runHttpThread() {
 
   svr.Get("/stop",
           [&, this](const httplib::Request &req, httplib::Response &res) {
+            logEvent("Http thread recieved /stop command - stopping",
+                     spdlog::level::info);
             running = false;
             cleanupContext.cleanupCV.notify_one(); // Wake cleanup thread
             res.set_content("Server stopping", "text/plain");
             svr.stop();
           });
 
-  svr.Get("/check_subscriber",
-          [this](const httplib::Request &req, httplib::Response &res) {
+  svr.Get("/check_subscriber", [this](const httplib::Request &req,
+                                      httplib::Response &res) {
+    if (!req.has_param("imsi")) {
+      res.status = 400;
+      res.set_content("Missing 'imsi' parameter", "text/plain");
+      logEvent("Check_subscriber called without an imsi", spdlog::level::info);
+      return;
+    }
 
-            if (!req.has_param("imsi")) {
-              res.status = 400;
-              res.set_content("Missing 'imsi' parameter", "text/plain");
-              return;
-            }
+    std::string result = "not active";
+    std::string param = req.get_param_value("imsi");
+    auto imsi = IMSI::fromStdString(param);
+    if (imsi.has_value()) {
+      bool found = false;
+      {
+        std::unique_lock<std::mutex> lock(sessionMutex);
+        found = (sessions.find(imsi.value()) != sessions.end());
+      }
+      if (found) {
+        result = "active";
+      }
+    }
 
-            std::string result = "not active";
-            std::string param = req.get_param_value("imsi");
-            auto imsi = IMSI::fromStdString(param);
-            if (imsi.has_value()) {
-              bool found = false;
-              {
-                std::unique_lock<std::mutex> lock(sessionMutex);
-                found = (sessions.find(imsi.value()) != sessions.end());
-              }
-              if (found) {
-                result = "active";
-              }
-            }
+    res.set_content(result, "text/plain");
+    {
+      std::ostringstream oss;
+      oss << "Check_subscriber with imsi \"" << imsi->toStdString()
+          << "\", status: " << result;
+      logEvent(oss.str(), spdlog::level::info);
+    }
+  });
 
-            res.set_content(result, "text/plain");
-          });
-
+  logEvent("Http thread running");
   if (!svr.listen(config.ip, config.httpPort)) {
     std::cerr << "Failed to start HTTP server" << std::endl;
     return;
