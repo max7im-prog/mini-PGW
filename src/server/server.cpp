@@ -318,6 +318,7 @@ void Server::processUdpPacket(std::vector<unsigned char> packet,
 }
 
 void Server::run() {
+  logEvent("Server started",spdlog::level::info);
   running = true;
   epollThread = std::thread(&Server::runEpollThread, this);
   logEvent("epoll thread started");
@@ -343,6 +344,7 @@ void Server::run() {
     logEvent("cleanup thread joined");
   }
   deinit();
+  logEvent("Server stopped",spdlog::level::info);
 }
 
 void Server::sendUdpPacket(const std::string &response,
@@ -470,8 +472,33 @@ void Server::runHttpThread() {
             svr.stop();
           });
 
-  // Start listening (blocking call)
-  if (!svr.listen(config.ip, config.httpPort)) { // Example HTTP port
+  svr.Get("/check_subscriber",
+          [this](const httplib::Request &req, httplib::Response &res) {
+
+            if (!req.has_param("imsi")) {
+              res.status = 400;
+              res.set_content("Missing 'imsi' parameter", "text/plain");
+              return;
+            }
+
+            std::string result = "not active";
+            std::string param = req.get_param_value("imsi");
+            auto imsi = IMSI::fromStdString(param);
+            if (imsi.has_value()) {
+              bool found = false;
+              {
+                std::unique_lock<std::mutex> lock(sessionMutex);
+                found = (sessions.find(imsi.value()) != sessions.end());
+              }
+              if (found) {
+                result = "active";
+              }
+            }
+
+            res.set_content(result, "text/plain");
+          });
+
+  if (!svr.listen(config.ip, config.httpPort)) {
     std::cerr << "Failed to start HTTP server" << std::endl;
     return;
   }

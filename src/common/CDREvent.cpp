@@ -15,7 +15,7 @@ std::string CDREvent::toString() const {
   std::time_t temp = std::chrono::system_clock::to_time_t(timestamp);
   std::tm tm_buf;
   localtime_r(&temp, &tm_buf);
-  oss << std::put_time(&tm_buf, "%Y/%m/%d/%H/%M");
+  oss << std::put_time(&tm_buf, "[%Y/%m/%d %H:%M:%S]");
 
   if (eventType != EventType::wrongIMSI) {
     oss << " " << imsi.toStdString();
