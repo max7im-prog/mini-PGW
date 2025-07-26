@@ -9,7 +9,7 @@ public:
   static std::optional<IMSI>
   fromBCDBytes(const std::vector<unsigned char> &bcdStr);
   const std::string &toStdString() const;
-  std::string toBCDBytes() const;
+  std::vector<unsigned char> toBCDBytes() const;
   IMSI(const IMSI &other) = default;
   IMSI(IMSI &&other) = default;
   IMSI &operator=(const IMSI &other) = default;

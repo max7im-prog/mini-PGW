@@ -3,8 +3,8 @@
 
 const std::string &IMSI::toStdString() const { return imsi; }
 
-std::string IMSI::toBCDBytes() const {
-  std::string bcd;
+std::vector<unsigned char> IMSI::toBCDBytes() const {
+  std::vector<unsigned char> bcd;
   uint16_t imsiSizeBytes = (imsi.size() + 1) / 2;
   bcd.reserve(4 + imsiSizeBytes);
 

@@ -356,7 +356,7 @@ void Server::run() {
   }
   deinit();
   logEvent("Server stopped", spdlog::level::info);
-  std::cout <<"Server stopped" << std::endl;
+  std::cout << "Server stopped" << std::endl;
 }
 
 void Server::sendUdpPacket(const std::string &response,
@@ -365,7 +365,13 @@ void Server::sendUdpPacket(const std::string &response,
       udpSocketContext.udpSocketFD, response.data(), response.size(), 0,
       reinterpret_cast<const sockaddr *>(&clientAddr), sizeof(clientAddr));
   if (result == -1) {
-    // TODO: log failure to send
+    char ipStr[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(clientAddr.sin_addr), ipStr, sizeof(ipStr));
+    uint16_t port = ntohs(clientAddr.sin_port);
+    std::ostringstream oss;
+    oss << "Failed to send UDP packet to " << ipStr << ":" << port << ": "
+        << strerror(errno);
+    logEvent(oss.str(), spdlog::level::err);
   }
 }
 
