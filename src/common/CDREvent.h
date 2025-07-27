@@ -4,6 +4,10 @@
 
 using Timestamp = std::chrono::time_point<std::chrono::system_clock>;
 
+/**
+ * @brief Class to represent a CDR (Call Detail Record) event.
+ *
+ */
 class CDREvent {
 public:
   enum class EventType {
