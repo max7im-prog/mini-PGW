@@ -18,6 +18,7 @@ This is, however, only an emulator and it does not support packet forwarding, AR
 - /src/common - code used by both server and client
 - /test - testing
 - /res - resources
+- /docs - documentation
 
 ## Build instructions
 
@@ -95,3 +96,13 @@ Server provides several HTTP endpoints:
 - /stop - query this to stop the server and trigger gracefull offload
 - /check_subscriber?imsi=IMSI - checks if the subscriber with IMSI has an active session corresponding to him
 
+
+## Documentation
+
+Project has a doxygen configured. To generate documentation, go to the project's root and use:
+
+```bash
+doxygen ./docs/Doxyfile 
+```
+
+That will generate a documentation in **/docs/html** directory of a project
