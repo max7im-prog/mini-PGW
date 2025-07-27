@@ -1,6 +1,7 @@
 #include "client.h"
 #include "spdlog/common.h"
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -71,14 +72,16 @@ std::unique_ptr<Client> Client::fromConfig(const ClientConfig &config) {
 }
 
 bool Client::init(const ClientConfig &config) {
-
-  clientLogger = spdlog::rotating_logger_mt("clientLogger", config.logFileName,
-                                            1048576 * 5, 3);
-  if (clientLogger == nullptr) {
+  // ---- Setup Logger ----
+  clientLogger = spdlog::rotating_logger_mt(
+      "clientLogger", config.logFileName, 1048576 * 5, 3);
+  if (!clientLogger) {
     std::cerr << "Failed to create logger: " << config.logFileName << std::endl;
     return false;
   }
+
   clientLogger->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+
   if (config.logLevel == "INFO") {
     clientLogger->set_level(spdlog::level::info);
   } else if (config.logLevel == "CRIT") {
@@ -96,20 +99,28 @@ bool Client::init(const ClientConfig &config) {
   }
   spdlog::flush_every(std::chrono::seconds(1));
 
+
   udpSocketContext.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
   if (udpSocketContext.udpSocketFD < 0) {
-    std::ostringstream oss;
-    oss << "Socket error: " << strerror(errno);
-    logEvent(oss.str(), spdlog::level::err);
+    logEvent("Socket error: " + std::string(strerror(errno)), spdlog::level::err);
+    return false;
+  }
+
+  int flags = fcntl(udpSocketContext.udpSocketFD, F_GETFL, 0);
+  if (flags == -1) flags = 0;
+  if (fcntl(udpSocketContext.udpSocketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
+    logEvent("Failed to set non-blocking mode: " + std::string(strerror(errno)),
+             spdlog::level::err);
+    close(udpSocketContext.udpSocketFD);
     return false;
   }
 
   udpSocketContext.recvBuffer.resize(2048);
   udpSocketContext.epollFD = epoll_create1(0);
   if (udpSocketContext.epollFD < 0) {
-    std::ostringstream oss;
-    oss << "Epoll_create1 error: " << strerror(errno);
-    logEvent(oss.str(), spdlog::level::err);
+    logEvent("Epoll_create1 error: " + std::string(strerror(errno)),
+             spdlog::level::err);
+    close(udpSocketContext.udpSocketFD);
     return false;
   }
 
@@ -118,11 +129,10 @@ bool Client::init(const ClientConfig &config) {
   ev.data.fd = udpSocketContext.udpSocketFD;
   if (epoll_ctl(udpSocketContext.epollFD, EPOLL_CTL_ADD,
                 udpSocketContext.udpSocketFD, &ev) < 0) {
+    logEvent("Epoll_ctl error: " + std::string(strerror(errno)),
+             spdlog::level::err);
     close(udpSocketContext.udpSocketFD);
     close(udpSocketContext.epollFD);
-    std::ostringstream oss;
-    oss << "Epoll_ctl error: " << strerror(errno);
-    logEvent(oss.str(), spdlog::level::err);
     return false;
   }
 
@@ -130,6 +140,7 @@ bool Client::init(const ClientConfig &config) {
 
   return true;
 }
+
 
 void Client::deinit() {
   if (udpSocketContext.udpSocketFD != -1) {

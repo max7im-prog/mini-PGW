@@ -202,7 +202,7 @@ bool Server::init(const ServerConfig &config) {
     auto existingLogger = spdlog::get("cdrLogger");
     if (!existingLogger) {
       loggingContext.cdrLogger = spdlog::rotating_logger_mt(
-          "cdrLogger", config.logFileName, 1048576 * 5, 3);
+          "cdrLogger", config.cdrFileName, 1048576 * 5, 3);
     } else {
       loggingContext.cdrLogger = existingLogger;
     }
