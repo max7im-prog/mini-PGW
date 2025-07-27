@@ -35,7 +35,7 @@ cmake --build .
 
 ## Testing 
 
-to run tests, after building the project, go to project's root and run:
+To run tests, after building the project, go to project's root and run:
 
 ```bash
 cd ./build
