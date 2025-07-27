@@ -16,7 +16,10 @@ ThreadPool::ThreadPool(size_t threadCount) : running(true) {
           task = std::move(tasks.front());
           tasks.pop();
         }
-        task();
+        try {
+          task();
+        } catch (const std::exception &e) {
+        }
       }
     });
   }
@@ -43,8 +46,8 @@ void ThreadPool::enqueue(Task task) {
   condition.notify_one();
 }
 
-std::unique_ptr<ThreadPool> ThreadPool::create(size_t threadCount){
-  if(threadCount == 0){
+std::unique_ptr<ThreadPool> ThreadPool::create(size_t threadCount) {
+  if (threadCount == 0) {
     return nullptr;
   }
   return std::unique_ptr<ThreadPool>(new ThreadPool(threadCount));
