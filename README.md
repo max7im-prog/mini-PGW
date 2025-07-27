@@ -26,6 +26,7 @@ The project is written in C++ and built with CMake and therefore follows the bas
 
 ```bash
 git clone https://github.com/max7im-prog/mini-PGW.git
+cd mini-PGW
 mkdir build
 cd build
 cmake .. 
