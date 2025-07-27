@@ -535,7 +535,7 @@ void Server::runHttpThread() {
     }
 
     res.set_content(result, "text/plain");
-    {
+    if (imsi.has_value()) {
       std::ostringstream oss;
       oss << "Check_subscriber with imsi \"" << imsi->toStdString()
           << "\", status: " << result;
