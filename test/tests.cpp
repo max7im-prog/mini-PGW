@@ -1,3 +1,4 @@
+#include "client.h"
 #include "imsi.h"
 #include "server.h"
 #include "threadPool.h"
@@ -315,7 +316,35 @@ TEST_F(ServerTest, ProcessUdpPackets) {
   EXPECT_EQ(svr->getNumSent(), 3);
 }
 
+class ClientTest : public ::testing::Test {
+public:
+  static void setupTestSuite() {}
+  void SetUp() override {
+    config = Client::parseConfigFile(configFileName).value();
+  }
+  void TearDown() override { client.reset(); }
+  static void TearDownTestSuite() {}
+  std::unique_ptr<Client> client;
+  Client::ClientConfig config;
+  const std::string configFileName = "res/testClientConfig.json";
+};
 
+TEST_F(ClientTest, ParseConfig) {
+  ASSERT_TRUE(Client::parseConfigFile(configFileName).has_value());
+}
 
+TEST_F(ClientTest, FromConfig) {
+  {
+    auto temp = config;
+    auto client = Client::fromConfig(config);
+    ASSERT_NE(client, nullptr);
+  }
+}
 
-
+TEST_F(ClientTest, FromConfigFile) {
+  {
+    auto temp = config;
+    auto client = Client::fromConfigFile(configFileName);
+    ASSERT_NE(client, nullptr);
+  }
+}

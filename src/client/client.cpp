@@ -26,6 +26,9 @@ Client::parseConfigFile(const std::string &configFile) {
   if (!data.contains("serverIp") || !data["serverIp"].is_string())
     return std::nullopt;
   clientConfig.serverIp = data["serverIp"].get<std::string>();
+  struct in_addr addr;
+  if (inet_pton(AF_INET, clientConfig.serverIp.c_str(), &addr) != 1)
+    return std::nullopt;
 
   if (!data.contains("serverPort") || !data["serverPort"].is_number_unsigned())
     return std::nullopt;
@@ -73,8 +76,8 @@ std::unique_ptr<Client> Client::fromConfig(const ClientConfig &config) {
 
 bool Client::init(const ClientConfig &config) {
   // ---- Setup Logger ----
-  clientLogger = spdlog::rotating_logger_mt(
-      "clientLogger", config.logFileName, 1048576 * 5, 3);
+  clientLogger = spdlog::rotating_logger_mt("clientLogger", config.logFileName,
+                                            1048576 * 5, 3);
   if (!clientLogger) {
     std::cerr << "Failed to create logger: " << config.logFileName << std::endl;
     return false;
@@ -99,15 +102,16 @@ bool Client::init(const ClientConfig &config) {
   }
   spdlog::flush_every(std::chrono::seconds(1));
 
-
   udpSocketContext.udpSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
   if (udpSocketContext.udpSocketFD < 0) {
-    logEvent("Socket error: " + std::string(strerror(errno)), spdlog::level::err);
+    logEvent("Socket error: " + std::string(strerror(errno)),
+             spdlog::level::err);
     return false;
   }
 
   int flags = fcntl(udpSocketContext.udpSocketFD, F_GETFL, 0);
-  if (flags == -1) flags = 0;
+  if (flags == -1)
+    flags = 0;
   if (fcntl(udpSocketContext.udpSocketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
     logEvent("Failed to set non-blocking mode: " + std::string(strerror(errno)),
              spdlog::level::err);
@@ -140,7 +144,6 @@ bool Client::init(const ClientConfig &config) {
 
   return true;
 }
-
 
 void Client::deinit() {
   if (udpSocketContext.udpSocketFD != -1) {
@@ -219,9 +222,9 @@ void Client::run(const IMSI &imsi) {
           '\0';
       {
         std::ostringstream oss;
-        oss << "Response from " << inet_ntoa(fromAddr.sin_addr)
-        << ":" << ntohs(fromAddr.sin_port) << ": \""
-        << udpSocketContext.recvBuffer.data() << "\"";
+        oss << "Response from " << inet_ntoa(fromAddr.sin_addr) << ":"
+            << ntohs(fromAddr.sin_port) << ": \""
+            << udpSocketContext.recvBuffer.data() << "\"";
         logEvent(oss.str(), spdlog::level::info);
       }
       if (!config.quiet) {

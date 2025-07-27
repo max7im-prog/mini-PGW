@@ -22,6 +22,8 @@ public:
   void run(const IMSI &imsi);
   static std::unique_ptr<Client> fromConfigFile(const std::string &configFile);
   static std::unique_ptr<Client> fromConfig(const ClientConfig &config);
+  static std::optional<ClientConfig>
+  parseConfigFile(const std::string &configFile);
 
   ~Client();
 
@@ -41,7 +43,4 @@ protected:
   ClientConfig config;
 
   std::shared_ptr<spdlog::logger> clientLogger;
-
-  static std::optional<ClientConfig>
-  parseConfigFile(const std::string &configFile);
 };
