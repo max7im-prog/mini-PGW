@@ -1,4 +1,5 @@
 #include "imsi.h"
+#include "server.h"
 #include "threadPool.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -150,7 +151,7 @@ TEST_F(ThreadPoolTest, enqueueTask) {
   {
     std::unique_lock<std::mutex> lock(mtx);
     allTasksFinished = cv.wait_for(lock, std::chrono::seconds(2),
-                                  [&]() { return tasksRemaining == 0; });
+                                   [&]() { return tasksRemaining == 0; });
     EXPECT_EQ(numRepeats, 10);
     EXPECT_EQ(tasksRemaining, 0);
   }
@@ -162,8 +163,63 @@ TEST_F(ThreadPoolTest, ExceptionHandling) {
   threadPool = ThreadPool::create(2);
   EXPECT_NO_THROW({
     threadPool->enqueue([] { throw std::runtime_error("Oops"); });
-    threadPool->enqueue([] {}); // Should still run fine
+    threadPool->enqueue([] {});
   });
 }
 
+class ServerMock : public Server {
+public:
+  using Server::parseConfigFile;
+  MOCK_METHOD(void, sendUdpPacket, (const std::string &, const sockaddr_in &),
+              (override));
 
+  void stop() { running = false; }
+
+  friend class ServerTest;
+};
+
+class ServerTest : public ::testing::Test {
+public:
+  static void setupTestSuite() {}
+  void SetUp() override {}
+  void TearDown() override { server.reset(); }
+  static void TearDownTestSuite() {}
+  std::unique_ptr<ServerMock> server;
+  Server::ServerConfig config;
+  const std::string configFileName = "res/testServerConfig.json";
+  friend class ServerMock;
+};
+
+TEST_F(ServerTest, ReadServerConfig) {
+  auto temp = ServerMock::parseConfigFile(configFileName);
+  ASSERT_NE(temp, std::nullopt);
+}
+
+TEST_F(ServerTest, FailOnWrongConfig) {
+  ASSERT_NO_THROW(config = ServerMock::parseConfigFile(configFileName).value());
+  {
+    auto temp = config;
+    config.ip = "455.455.455.455";
+    auto svr = Server::fromConfig(config);
+    EXPECT_EQ(svr,nullptr);
+  }
+  {
+    auto temp = config;
+    config.logLevel = "blablabla";
+    auto svr = Server::fromConfig(config);
+    EXPECT_EQ(svr,nullptr);
+  }
+}
+
+TEST_F(ServerTest, SuccessOnGoodConfig){
+  ASSERT_NO_THROW(config = ServerMock::parseConfigFile(configFileName).value());
+  {
+    auto svr = Server::fromConfig(config);
+    EXPECT_NE(svr,nullptr) <<"fail on fromConfig";
+  }
+  {
+    auto svr = Server::fromConfigFile(configFileName);
+    EXPECT_NE(svr,nullptr)<<"fail on fromConfigFile";
+  }
+
+}

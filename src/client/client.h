@@ -25,7 +25,7 @@ public:
 
   ~Client();
 
-private:
+protected:
   Client() = default;
   bool init(const ClientConfig &config);
   void deinit();

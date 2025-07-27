@@ -34,29 +34,46 @@ public:
     std::string logLevel;
     std::set<IMSI> blacklist;
   };
+
   void run();
   static std::unique_ptr<Server> fromConfigFile(const std::string &configFile);
   static std::unique_ptr<Server> fromConfig(const ServerConfig &config);
+  static std::optional<ServerConfig>
+  parseConfigFile(const std::string &configFile);
+
   ~Server();
   Server(Server &other) = delete;
   Server &operator=(Server &other) = delete;
   Server(Server &&other) = delete;
   Server &operator=(Server &&other) = delete;
 
-private:
-  void sendUdpPacket(const std::string &response,
+protected:
+  Server() = default;
+
+  virtual void sendUdpPacket(const std::string &response,
                      const sockaddr_in &clientAddr);
-  static std::optional<ServerConfig>
-  parseConfigFile(const std::string &configFile);
+  
   bool init(const ServerConfig &config);
   void deinit();
-  Server() = default;
+  void logCDR(const CDREvent &cdrEvent);
+  void logEvent(const std::string &msg,
+                spdlog::level::level_enum level = spdlog::level::debug);
+  void runEpollThread();
+  void runHttpThread();
+  void runCleanupThread();
+  virtual void
+  addSession(IMSI imsi,
+             std::chrono::time_point<std::chrono::steady_clock> expiration);
+
+  void processUdpPacket(std::vector<unsigned char> packet,
+                        const sockaddr_in &clientAddr);
 
   ServerConfig config;
 
   std::thread epollThread;
   std::thread httpThread;
   std::thread cleanupThread;
+
   std::unique_ptr<ThreadPool> udpThreadPool;
 
   struct UdpSocketContext {
@@ -84,22 +101,8 @@ private:
     std::shared_ptr<spdlog::logger> serverLogger;
     std::shared_ptr<spdlog::logger> cdrLogger;
   } loggingContext;
-  void logCDR(const CDREvent &cdrEvent);
-  void logEvent(const std::string &msg,
-                spdlog::level::level_enum level = spdlog::level::debug);
 
   std::map<IMSI, Session> sessions;
   std::mutex sessionMutex;
-
-  void runEpollThread();
-  void runHttpThread();
-  void runCleanupThread();
-  void
-  addSession(IMSI imsi,
-             std::chrono::time_point<std::chrono::steady_clock> expiration);
-
-  void processUdpPacket(std::vector<unsigned char> packet,
-                        const sockaddr_in &clientAddr);
-
   std::atomic<bool> running; // Main flag controlling the execution of threads
 };

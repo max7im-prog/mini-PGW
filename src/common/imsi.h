@@ -21,7 +21,7 @@ public:
 
   bool operator==(const IMSI &other) const;
 
-private:
+protected:
   IMSI(const std::string &imsiStr);
   std::string imsi;
 };

@@ -168,8 +168,16 @@ bool Server::init(const ServerConfig &config) {
 
   udpSocketContext.recvBuffer.resize(2048);
 
-  loggingContext.serverLogger = spdlog::rotating_logger_mt(
-      "serverLogger", config.logFileName, 1048576 * 5, 3);
+  {
+    auto existingLogger = spdlog::get("serverLogger");
+    if (!existingLogger) {
+      loggingContext.serverLogger = spdlog::rotating_logger_mt(
+          "serverLogger", config.logFileName, 1048576 * 5, 3);
+    } else {
+      loggingContext.serverLogger = existingLogger;
+    }
+  }
+
   if (loggingContext.serverLogger == nullptr) {
     return false;
   }
@@ -190,10 +198,14 @@ bool Server::init(const ServerConfig &config) {
     loggingContext.serverLogger->set_level(spdlog::level::off);
   }
 
-  loggingContext.cdrLogger = spdlog::rotating_logger_mt(
-      "cdrLogger", config.cdrFileName, 1048576 * 5, 3);
-  if (loggingContext.cdrLogger == nullptr) {
-    return false;
+  {
+    auto existingLogger = spdlog::get("cdrLogger");
+    if (!existingLogger) {
+      loggingContext.cdrLogger = spdlog::rotating_logger_mt(
+          "cdrLogger", config.logFileName, 1048576 * 5, 3);
+    } else {
+      loggingContext.cdrLogger = existingLogger;
+    }
   }
   loggingContext.cdrLogger->set_pattern("%v");
   loggingContext.cdrLogger->set_level(spdlog::level::info);

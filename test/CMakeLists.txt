@@ -14,3 +14,12 @@ target_link_libraries(unitTests
 )
 
 gtest_discover_tests(unitTests)
+
+add_custom_target(copy_test_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/res
+        ${CMAKE_CURRENT_BINARY_DIR}/res
+)
+
+add_dependencies(unitTests copy_test_resources)
+

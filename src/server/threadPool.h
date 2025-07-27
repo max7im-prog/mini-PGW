@@ -18,7 +18,7 @@ public:
   ThreadPool(ThreadPool &&other) = delete;
   ThreadPool &operator=(ThreadPool &&other) = delete;
 
-private:
+protected:
   explicit ThreadPool(size_t threadCount);
   std::queue<Task> tasks;
   std::vector<std::thread> threads;
