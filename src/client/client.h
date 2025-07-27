@@ -8,9 +8,17 @@
 #include <spdlog/spdlog.h>
 #include <vector>
 
+/**
+ * @class Client
+ * @brief Class to send UDP packets to Server
+ *
+ * The Client class is used to send BCD-encoded IMSI to the Server and then wait
+ * for it's response.
+ */
 class Client {
 public:
   /**
+   * @class ClientConfig
    * @brief Holds parameters for client configuration
    *
    */

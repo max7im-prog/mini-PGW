@@ -4,6 +4,7 @@
 #include <vector>
 
 /**
+ * @class IMSI
  * @brief Class to represent an IMSI
  *
  */

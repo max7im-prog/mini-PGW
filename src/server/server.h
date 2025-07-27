@@ -29,6 +29,7 @@
 class Server {
 public:
   /**
+   * @class ServerConfig
    * @brief Holds parameters for server configuration
    *
    */
@@ -177,7 +178,7 @@ protected:
 
   /**
    * @brief Stores all data related to UDP socket(socketFD, epollFD, etc.)
-   * 
+   *
    */
   struct UdpSocketContext {
     int udpSocketFD;
@@ -188,7 +189,7 @@ protected:
 
   /**
    * @brief Stores all data related to cleanup
-   * 
+   *
    */
   struct CleanupContext {
     struct ExpirationEntry {
@@ -206,7 +207,7 @@ protected:
 
   /**
    * @brief Stores all data related to logging
-   * 
+   *
    */
   struct LoggingContext {
     std::shared_ptr<spdlog::logger> serverLogger;
