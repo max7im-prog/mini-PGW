@@ -65,7 +65,7 @@ protected:
   addSession(IMSI imsi,
              std::chrono::time_point<std::chrono::steady_clock> expiration);
 
-  void processUdpPacket(std::vector<unsigned char> packet,
+  virtual void processUdpPacket(std::vector<unsigned char> packet,
                         const sockaddr_in &clientAddr);
 
   ServerConfig config;

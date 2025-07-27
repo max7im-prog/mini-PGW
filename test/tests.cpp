@@ -1,6 +1,7 @@
 #include "imsi.h"
 #include "server.h"
 #include "threadPool.h"
+#include <condition_variable>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <memory>
@@ -169,11 +170,75 @@ TEST_F(ThreadPoolTest, ExceptionHandling) {
 
 class ServerMock : public Server {
 public:
-  using Server::parseConfigFile;
-  MOCK_METHOD(void, sendUdpPacket, (const std::string &, const sockaddr_in &),
-              (override));
+  void sendUdpPacket(const std::string &response,
+                     const sockaddr_in &clientAddr) override {
+    {
+      std::lock_guard<std::mutex> lock(mockMutex);
+      mockNumSent++;
+    }
+    mockCV.notify_one();
+  }
+
+  // void processUdpPacket(std::vector<unsigned char> packet,
+  //                       const sockaddr_in &clientAddr) override {
+  //   Server::processUdpPacket(std::move(packet), clientAddr);
+  // }
+
+  void mockProcessUdpPacket(std::vector<unsigned char> packet,
+                            const sockaddr_in &clientAddr) {
+    // Forward call to real Server implementation
+    Server::processUdpPacket(std::move(packet), clientAddr);
+  }
+
+  void addSession(
+      IMSI imsi,
+      std::chrono::time_point<std::chrono::steady_clock> expiration) override {
+    Server::addSession(imsi, expiration);
+    {
+      std::lock_guard<std::mutex> lock(mockMutex);
+      mockNumSessions++;
+    }
+    mockCV.notify_one();
+  }
 
   void stop() { running = false; }
+
+  // Helper to wait until mockNumSent reaches a value
+  bool waitForPackets(size_t expected, std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mockMutex);
+    return mockCV.wait_for(lock, timeout,
+                           [&] { return mockNumSent >= expected; });
+  }
+
+  bool waitForSessions(size_t expected, std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mockMutex);
+    return mockCV.wait_for(lock, timeout,
+                           [&] { return mockNumSessions >= expected; });
+  }
+
+  size_t getNumSent() {
+    std::lock_guard<std::mutex> lock(mockMutex);
+    return mockNumSent;
+  }
+
+  size_t getNumSessions() {
+    std::lock_guard<std::mutex> lock(mockMutex);
+    return mockNumSessions;
+  }
+
+  static std::unique_ptr<ServerMock>
+  fromConfigMock(Server::ServerConfig config) {
+    auto mock = std::unique_ptr<ServerMock>(new ServerMock());
+    if (!mock->init(config))
+      return nullptr;
+    return mock;
+  }
+
+private:
+  size_t mockNumSent = 0;
+  size_t mockNumSessions = 0;
+  std::condition_variable mockCV;
+  std::mutex mockMutex;
 
   friend class ServerTest;
 };
@@ -181,7 +246,9 @@ public:
 class ServerTest : public ::testing::Test {
 public:
   static void setupTestSuite() {}
-  void SetUp() override {}
+  void SetUp() override {
+    config = ServerMock::parseConfigFile(configFileName).value();
+  }
   void TearDown() override { server.reset(); }
   static void TearDownTestSuite() {}
   std::unique_ptr<ServerMock> server;
@@ -201,25 +268,54 @@ TEST_F(ServerTest, FailOnWrongConfig) {
     auto temp = config;
     config.ip = "455.455.455.455";
     auto svr = Server::fromConfig(config);
-    EXPECT_EQ(svr,nullptr);
+    EXPECT_EQ(svr, nullptr);
   }
   {
     auto temp = config;
     config.logLevel = "blablabla";
     auto svr = Server::fromConfig(config);
-    EXPECT_EQ(svr,nullptr);
+    EXPECT_EQ(svr, nullptr);
   }
 }
 
-TEST_F(ServerTest, SuccessOnGoodConfig){
+TEST_F(ServerTest, SuccessOnGoodConfig) {
   ASSERT_NO_THROW(config = ServerMock::parseConfigFile(configFileName).value());
   {
-    auto svr = Server::fromConfig(config);
-    EXPECT_NE(svr,nullptr) <<"fail on fromConfig";
+    auto svr = ServerMock::fromConfig(config);
+    EXPECT_NE(svr, nullptr) << "fail on fromConfig";
   }
   {
-    auto svr = Server::fromConfigFile(configFileName);
-    EXPECT_NE(svr,nullptr)<<"fail on fromConfigFile";
+    auto svr = ServerMock::fromConfigFile(configFileName);
+    EXPECT_NE(svr, nullptr) << "fail on fromConfigFile";
   }
-
 }
+
+TEST_F(ServerTest, ProcessUdpPackets) {
+  config.blacklist = {*IMSI::fromStdString("1111")};
+  auto svr = ServerMock::fromConfigMock(config);
+  ASSERT_NE(svr, nullptr);
+  {
+    auto bcd = IMSI::fromStdString("1234")->toBCDBytes();
+    sockaddr_in clientAddr;
+    svr->mockProcessUdpPacket(bcd, clientAddr);
+  }
+  {
+    auto bcd = IMSI::fromStdString("1111")->toBCDBytes();
+    sockaddr_in clientAddr;
+    svr->mockProcessUdpPacket(bcd, clientAddr);
+  }
+  {
+    auto bcd = IMSI::fromStdString("1111")->toBCDBytes();
+    sockaddr_in clientAddr;
+    svr->mockProcessUdpPacket(bcd, clientAddr);
+  }
+  svr->waitForPackets(3, std::chrono::milliseconds(100));
+  svr->waitForSessions(1, std::chrono::milliseconds(100));
+  EXPECT_EQ(svr->getNumSessions(), 1);
+  EXPECT_EQ(svr->getNumSent(), 3);
+}
+
+
+
+
+
